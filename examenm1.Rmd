@@ -1,0 +1,513 @@
+---
+title: "Examen Módulo 1"
+author: "Rodrigo Gutiérrez Del Bosque - A01382212"
+date: '2023-05-12'
+output:
+  html_document:
+    theme: flatly
+    toc: true
+    toc_depth: 3
+    number_sections: TRUE
+    toc_float:
+      smooth_scroll: FALSE
+      collapsed: FALSE
+---
+## Preguntas
+
+***Describir al menos 3-5 diferencias entre análisis exploratorio de datos (EDA) y análisis exploratorio espacial de datos (ESDA).***
+
+- La principal diferencia será que claramente en el EDA se hace un análisis de variables NO espaciales. Esto incluye estadisticas descriptivas de variables numéricas, la visualización de estas, ver la distribución, etc. Por el contrario, con el ESDA incluimos también variables espaciales que nos indican cómo se distribuyen nuestras variables dependiendo de dónde se localizan.
+- Mientras que en el EDA tomamos en cuenta la correlación que existen entre las variables numéricas, en el ESDA tomamos en cuenta la autocorrelación espacial, la cual nos indica si las variables y sus valores se relacionan con su ubicación. Esto puede ser local y/o global, algo que no se incluye en el EDA.
+- Mientras que en el EDA tendremos gráficas como boxplots, diagramas de dispersión, gráficas de barras, etc., en el ESDA nuestros principales gráficas serán mapas. En estos mapas podemos ver las autocorrelaciones, los valores por ubicación, los p values de predicciones, entre otros aspectos.
+
+***Describir al menos 3-5 diferencias entre la estimación de modelo de regresión no espacial, espacial global, y espacial local***
+
+- La principal diferencia existe entre los modelos no espaciales y los espaciales (ya sean globales o locales) en cuanto a que en el primero no se toma en cuenta si el valor de las variables cambia dependiendo del lugar en específico o de sus vecinos. En cambio, los modelos espaciales incluyen esta variable.
+- Una diferencia importante entre los modelos espaciales locales y los globales es que en modelos locales como el GWR se hace una regresión para cada uno de los puntos estudiados, dándole distintos pesos a los otros puntos dependiendo de su cercanía. Por el contrario, en el global se usa la autocorrelación espacial global y no se hacen regresiones para cada uno de los puntos.
+- En una regresión global se hace únicamente una regresión, por lo que las variables independientes solo tendrán un solo valor o coeficiente. Por el contrario, la regresión local hace una para cada lugar, por lo que existen coeficientes predecidos para las variables independientes en cada lugar. Esto es debido a que el primero toma en cuenta que no varía mucho la relación en toda el área entre dependiente e independientes.
+
+***Describir al menos 3-5 diferencias entre GWR y GRF***
+
+- EN GWR se realiza un modelo de regresión para cada área (por ejemplo, en el de COVID para cada municipio). Por el contrario, con el GRF estamos haciendo un modelo más global que no realiza regresiones o regresiones para cada lugar local en específico.
+- En GWR se toma en cuenta qué tan cercano es un punto o lugar de otro para asignarle un peso en la regresión. En GRF se toma un aspecto más global, ya que su propósito no es el identificar variables locales, si no que es el observar la autocorrelación global para predecir.
+- El GRF se convirtió en una manera de combinar lo que es un modelo de Machine Learning con el análisis geo-espacial, mientras que el GWR es un modelo de regresión mucho más clásico.
+
+***Describir cuáles son las 3-5 principales consecuencias de identificar autocorrelación espacial en los residuales de un modelo de regresión estimado.***
+
+- Esto nos indica que nuestro modelo no está capturando toda la información necesaria para explicar las variables espaciales y su efecto en el resto de las variables. Por lo tanto, esto hará que las predicciones hechas por estos modelos no sean confiables y que les falte explicar gran parte de la varianza en los datos.
+- Por lo general, esto significa que no contamos con una información importante en el modelo que nos ayudaría a corregir la autocorrelación de los residuales y a explicar y entendr mejor lo que intentamos predecir. Debido a esto, las conclusiones que obtengamos del análisis estarán incompletas.
+- Un punto importante es que cuando este fenómeno se presenta en modelos espaciales entonces significa que muy posiblemente los errores que se calcularon son menores a la realidad y es más fácil que el p-value de la autocorrelación espacial nos de pequeño. Esto puede hacer que pensemos que sí existe una autocorrelación espacial cuando en realidad no la hay.
+
+***Describir cómo el proceso de análisis espacial de datos puede mejorar las herramientas de Descriptive Analytics y Predictive Analytics en un contexto de Inteligencia de Negocios***
+
+Existen muchas situaciones relacionadas a la inteligencia de negocios que podrían verse beneficiadas gracias a usar técnicas de análisis espacial. Muchas de las empresas cuentan con variables que se pueden ver afectadas por el lugr específico donde se encuentren. Por ejemplo, empresas de logística y sus rutas de entrega; empresas de taxis o delivery; ventas de cualquier producto general; entre muchas otras. 
+
+Actualmente la mayoría de las empresas únicamente toman en cuenta otro tipo de variables, pero al tomar en cuenta la localización podrían empezar a segmentar mejor su negocio, expandirse a alguna zona en específico, armar mejores rutas, crear soluciones o productos para zonas en específico, etc. Permite ir más allá, tomando en cuenta características específicas para cada lugar o clúster de lugares, permitiendo así generar estrategias basadas en datos y su análisis para cada uno de estos lugares o clústers.
+
+##Parte 2
+
+###EDA
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r,warning=FALSE,include=FALSE}
+library(maptools)
+library(spdep)
+library(skimr)
+data(columbus) ### dataset 
+columbus_shp <- readShapePoly(system.file("etc/shapes/columbus.shp",package="spdep")) 
+### shapefile 
+col.gal.nb <- read.gal(system.file("etc/weights/columbus.gal", package="spdep")) 
+### spatial connectivity matrix but it requires to calculate the spatial weights.
+```
+
+```{r}
+library(SmartEDA)
+ExpData(data=columbus,type=2)
+```
+
+En cuanto al análisis exploratorio básico podemos encontrar:
+
+- No existe ningun valor NA en todo el dataframe.
+- En las variables con valor único no encontramos repetidos.
+
+
+```{r}
+analyze <- columbus[,c("HOVAL","INC","CRIME","OPEN","PLUMB","DISCBD","AREA","PERIMETER")]
+```
+
+```{r}
+skim(analyze)
+```
+
+- La variable con la mayor desviación estándar es la de House Value.
+- Así mismo, podemos observar que existen valores de casi 100, lo cual es muy grande tomando en cuenta que inicia en 17.
+- La variable con menor desviación es área, pero esto también es en parte por la escala que usa.
+- La variable de Crimen nos habla de las grandes diferencias entre vecindarios, con unos no teniendo ni 0.5 crímenes por mil hogares, mientras que uno llega hasta 68.
+- Es interesante observar que existen propiedades sin ningun espacio abierto.
+
+```{r}
+plot1 <- ExpNumViz(analyze,target=NULL,nlim=20,Page=c(2,2),sample=8)
+plot1[[1]]
+```
+
+Podemos observar la distribución, en este caso las variables de HOVAL, OPEN, PLUMB, AREA y PERIMETER deberán ser transformadas para que tengan una mejor distribución.
+
+```{r}
+plot3 <- ExpNumViz(columbus,target="HOVAL",nlim=4,scatter=FALSE,fname=NULL,col="green",Page=c(2,2),sample=7)
+plot3[[1]]
+```
+
+Podemos observar que en en todas las variables existen outliers, además de que en muchos de estos diagramas de dispersión parece no existir una relación clara entre el cambio de una variable con HOVAL.
+
+```{r}
+library(corrplot)
+CM = cor(analyze)
+corrplot(CM)
+```
+
+Podemos observar que HOVAL cuenta con las correlaciones más grandes con Income, Crime y distance to CBD. Sorprendentemente, las correlacione con Area y Perimeter no son muy grandes. Claramente existe una relación muy grande entre Area y Perimeter, lo cual pued indicar que son dependientes entre sí. Así mismo vemos que la variable distance to CBD influye mucho en temas como el crimen y el income.
+
+###Transformación de variables
+
+```{r}
+columbus$PLUMB <- log(columbus$PLUMB,10)
+columbus$AREA <- log(columbus$AREA,10)
+columbus$PERIMETER <- log(columbus$PERIMETER,10)
+columbus$HOVAL <- log(columbus$HOVAL,10)
+columbus$OPEN <- log(columbus$OPEN,10)
+```
+
+```{r}
+columbus_shp$PLUMB <- log(columbus_shp$PLUMB,10)
+columbus_shp$AREA <- log(columbus_shp$AREA,10)
+columbus_shp$PERIMETER <- log(columbus_shp$PERIMETER,10)
+columbus_shp$HOVAL <- log(columbus_shp$HOVAL,10)
+columbus_shp$OPEN <- log(columbus_shp$OPEN,10)
+```
+
+```{r}
+plot1 <- ExpNumViz(analyze,target=NULL,nlim=20,Page=c(2,2),sample=8)
+plot1[[1]]
+```
+
+```{r, include=FALSE}
+library(spdep)
+```
+
+##Non Spatial Model
+
+```{r}
+swm_queen <- poly2nb(columbus_shp, queen = TRUE)
+```
+
+```{r}
+rswm_queen <- nb2listw(swm_queen, style = "W", zero.policy = TRUE)
+```
+
+```{r}
+non_spatial_model = lm(HOVAL ~ AREA + PERIMETER + INC + PLUMB + DISCBD + CRIME, data = columbus_shp) 
+summary(non_spatial_model)
+```
+
+Hacemos un modelo no espacial para predecir el valor de la casa usando todas las variables del dataset. Vemos que AREA y PERIM no son significativas, por lo que las excluiremos.
+
+```{r}
+non_spatial_model_2 = lm(HOVAL ~ INC + PLUMB + DISCBD + CRIME, data = columbus_shp) 
+summary(non_spatial_model_2)
+```
+Vemos que la variable con mayor impacto en este caso es la de la plomería, mientras que la menor es la del crimen. Es importante tomar en cuenta que algunas de nuestras variables se encuentran transformadas con log. El modelo cuent con un valor ajustado de R2 de 0.54.
+
+```{r}
+AIC(non_spatial_model_2)
+```
+
+Podemos observar que cuenta con un AIC de -56, esto se usará para comparar con otros modelos.
+
+##Multicolinearidad
+
+```{r,include=FALSE}
+library(regclass)
+```
+
+
+```{r}
+VIF(non_spatial_model_2)
+```
+Podemos observar que, aunque los valores de PLUMB y DISCBD son algo grandes, podemos omitir una regularización al no ser muy grandes.
+
+###Diagnóstico para dependencia espacial
+
+```{r}
+lm.LMtests(non_spatial_model_2,rswm_queen,test=c("RLMlag"))
+```
+
+Debido al p value de 0.5 podemos concluir que no debemos incluir el lag de la variable dependiente en nuestro modelo.
+
+###Diagnóstico del error de dependencia global espacial
+
+```{r}
+lm.LMtests(non_spatial_model_2,rswm_queen,test=c("RLMerr"))
+```
+
+Debido al p-value de 0.37, se nos sugiere no incluir el lag del error en nuestro modelo.
+
+Tomando en cuenta que no haremos ningún cambio podemos continuar con los modelos espaciales.
+
+##ESDA
+
+###Identificar autocorrelación espacial global de 3-5 variables de interés
+
+```{r}
+moran.test(columbus_shp$HOVAL, listw = rswm_queen, zero.policy = TRUE, na.action = na.omit)
+```
+La autocorrelación espacial de HOVAL es un poco baja al ser de 0.26 y es positiva. Podemos ver que el p-value es de 0.001, por lo que podemos ver que existe una autocorrelación espacial global en HOVAL.
+
+```{r}
+moran.test(columbus_shp$INC, listw = rswm_queen, zero.policy = TRUE, na.action = na.omit)
+```
+
+La autocorrelación espacial de Income es 0.415 y es positiva. Podemos ver que el p-value es muy bajo, por lo que podemos ver que existe una autocorrelación espacial global en INC.
+
+
+```{r}
+moran.test(columbus_shp$PLUMB, listw = rswm_queen, zero.policy = TRUE, na.action = na.omit)
+```
+
+La autocorrelación espacial de PLUMB es alto al ser de 0.68 y es positiva. Podemos ver que el p-value es mínimo, por lo que podemos ver que existe una autocorrelación espacial global en PLUMB. Esta será quizá la variable con mayor autocorrelación espacial global.
+
+
+```{r}
+moran.test(columbus_shp$CRIME, listw = rswm_queen, zero.policy = TRUE, na.action = na.omit)
+```
+
+La autocorrelación espacial de CRIME es alta-media al ser de 0.5 y es positiva. Podemos ver que el p-value es mínimo, por lo que podemos ver que existe una autocorrelación espacial global en CRIME. Esta será una de las variables con mayor autocorrelación global debido a los patrones de crimen por zonas.
+
+```{r}
+moran.test(columbus_shp$DISCBD, listw = rswm_queen, zero.policy = TRUE, na.action = na.omit)
+```
+En este caso podemos observar que la autocorrelación global de distancia a centros de negocios como downtown es muy alta, con 0.8. Esto tiene sentido al ser una variable que toma en cuenta la distancia a unos puntos en específico.
+
+###Autocorrelación espacial local
+
+```{r,include=FALSE}
+library(sf)
+library(rgeoda)
+library(spatialreg)
+library(ggplot2)
+```
+
+
+```{r}
+columbus_shp_alt = st_read(system.file("etc/shapes/columbus.shp", package="spdep"))
+queen_w_2<-queen_weights(columbus_shp_alt) ### built it for detecting clusters across space
+```
+
+```{r}
+lisa_1<-local_moran(queen_w_2, columbus_shp_alt["HOVAL"]) 
+columbus_shp_alt$p_vals <-lisa_1$p_vals
+```
+
+```{r}
+ggplot(data=columbus_shp_alt) +
+  geom_sf(aes(fill=p_vals)) + 
+  ggtitle(label = "Autocorrelación espacial local del precio de las casas")
+```
+En este caso vemos que los lugares donde los p values son menores se encuentran al este, el centro y el sur de la ciudad. Esto nos indica los lugares donde el valor de los hogares se encuentran localmente especialmente relacionados, significando que cuentan con valores que se pueden agrupar en estas zonas.
+
+```{r}
+lisa_2<-local_moran(queen_w_2, columbus_shp_alt["CRIME"]) 
+columbus_shp_alt$p_vals <-lisa_2$p_vals
+```
+
+```{r}
+ggplot(data=columbus_shp_alt) +
+  geom_sf(aes(fill=p_vals)) + 
+  ggtitle(label = "Autocorrelación espacial local del crimen")
+```
+
+En este caso observamos que al centro-oeste, al suroeste y al este es donde encontramos la mayor significancia debido a p-values pequeños. En este caso coinciden los del centro y el este con unos de house value, por lo que pueden ser grupos que comparten características de estas dos variables.
+
+```{r}
+lisa_3 <-local_moran(queen_w_2, columbus_shp_alt["INC"]) 
+columbus_shp_alt$p_vals <-lisa_3$p_vals
+```
+
+```{r}
+ggplot(data=columbus_shp_alt) +
+  geom_sf(aes(fill=p_vals)) + 
+  ggtitle(label = "Autocorrelación espacial local de los ingresos")
+```
+
+En este caso observamos casi los mismos clusters de la gráfica anterior. Esto tiene sentido, ya que al contar con mayores ingresos las personas van a desear vivir en zonas más seguras. Aemás, parece estar relacionado con el valor de la casa.
+
+```{r}
+lisa_4 <-local_moran(queen_w_2, columbus_shp_alt["DISCBD"]) 
+columbus_shp_alt$p_vals <-lisa_4$p_vals
+```
+
+```{r}
+ggplot(data=columbus_shp_alt) +
+  geom_sf(aes(fill=p_vals)) + 
+  ggtitle(label = "Autocorrelación espacial local de distancia al CBD")
+```
+
+En este caso observamos grupos similares al anterior, aunque la mayoría parece contar con un pvalue muy pequeño, indicando una autocorrelación local muy grande. Así mismo, paece indicar que algunos de estos grupos están también relacionados con el crimen.
+
+###Spatial Durbin Model
+
+```{r}
+spatial_durbin <- lagsarlm(HOVAL ~ AREA + PERIMETER + INC + PLUMB + DISCBD + CRIME, data = columbus_shp, rswm_queen, type="mixed")
+summary(spatial_durbin)
+```
+
+En ese caso podemos observar que las variables de AREA y PERIMETER no son significativas, por lo que volveremos a hacer el modelo sin estas.
+
+```{r}
+spatial_durbin_2 <- lagsarlm(HOVAL ~ INC + PLUMB + DISCBD + CRIME, data = columbus_shp, rswm_queen,  type="mixed")
+summary(spatial_durbin_2)
+```
+
+
+```{r}
+AIC(spatial_durbin_2)
+```
+
+```{r}
+fitted_sp <- SpatialPolygonsDataFrame(columbus_shp, data = data.frame(spatial_durbin_2$fitted.values))
+```
+
+```{r}
+spplot(fitted_sp, "spatial_durbin_2.fitted.values", main = "Fitted Values")
+```
+
+En este caso podemos observar la predicción de nuestro modelo. Como vemos, son las zonas del centro, centro-norte y las del oeste las que cuentan con los valores menores. El resto parece oscilar en los valores mayores. Parece que la zona este es la que cuenta con el mayor valor de las casas.
+
+### Estimar Geographic Weighted Regression (GWR) (Modelo Local)
+
+```{r,include=FALSE}
+library(GWmodel)
+```
+
+
+```{r}
+bw1 <- bw.gwr(HOVAL ~ AREA + PERIMETER + INC + PLUMB + DISCBD + CRIME, 
+             approach = "AIC", adaptive = T, data=columbus_shp) 
+```
+
+```{r}
+m.gwr <- gwr.basic(HOVAL ~ AREA + PERIMETER + INC + PLUMB + DISCBD + CRIME, adaptive = T, data = columbus_shp, bw = bw1)  
+```
+
+```{r}
+m.gwr
+```
+
+Al igual que en el resto de los modelos, volveremos a calcularlo sin AREA y Perimeter debido a que no son significativas.
+
+```{r}
+m.gwr_2 <- gwr.basic(HOVAL ~ INC + PLUMB + DISCBD + CRIME, adaptive = T, data = columbus_shp, bw = bw1)  
+```
+
+```{r}
+m.gwr_2
+```
+
+En este caso vemos que las variables con mayor impacto son plomería y la distancia  centro. Así mismo, la única variable negativa es crimen, lo que significa que si disminuye el crimen aumentará el valor.
+
+```{r}
+gwr_sf = st_as_sf(m.gwr_2$SDF)
+```
+
+```{r,include=FALSE}
+library(tmap)
+```
+
+```{r}
+gwr_sf$y_predicted <- exp(gwr_sf$yhat)
+#mapview(gwr_sf, zcol="y_predicted", col.regions=brewer.pal(5, "Oranges"))
+tm_shape(gwr_sf) +
+  tm_polygons(col = "y_predicted", palette="YlOrRd", style="quantile", n=8, title="Columbus") +
+   tm_layout(title= 'House Income',  title.position = c('right', 'top'))
+```
+
+En este caso observamos algo similar a la predicción del modelo anterior, donde las propiedades con mayor valor se encuentran al este, la costa oeste y el norte. Por el contrario el centro y sur-centro parecen tener los valores más pequeños.
+
+### Autocorrelación Espacial de los residuales estimados
+
+```{r}
+moran.test(exp(spatial_durbin_2$residuals), rswm_queen)
+```
+
+```{r}
+moran.test(exp(gwr_sf$residual), rswm_queen)
+```
+
+En ambos casos podemos observar que contamos con valores del estadístico de Moran muy bajos (-0.012 y 0.006), además de contar con p-values altos. Esto nos indica que no existe una autocorrelación espacial de nuestros residuales y que al parecer sí podemos predecir el valor de las casas con nuestro modelo.
+
+###Selección de modelo
+
+```{r,include=FALSE}
+library(jtools)
+```
+```{r}
+AIC(spatial_durbin_2)
+```
+Podemos ver que nuestro modelo durbin cuenta con un valor de -56 de AIC, mientra que el GWR de -68. Debido a esto, elegiremos el modelo durbin para nuestros insights debido a que es el que cuenta con el menor error.
+
+###Predicción de House Value
+
+```{r}
+fitted_sp <- SpatialPolygonsDataFrame(columbus_shp, data = data.frame(spatial_durbin_2$fitted.values))
+```
+
+```{r}
+spplot(fitted_sp, "spatial_durbin_2.fitted.values", main = "Fitted Values")
+```
+
+En este caso podemos observar la predicción de nuestro modelo. Como vemos, son las zonas del centro, centro-norte y las del oeste las que cuentan con los valores menores. El resto parece oscilar en los valores mayores. Parece que la zona este es la que cuenta con el mayor valor de las casas.
+
+###Clústers
+
+***Crimen***
+
+```{r}
+map_cluster1 <- columbus_shp_alt
+```
+
+```{r}
+lisa_ppp <-local_moran(queen_w_2, columbus_shp_alt["CRIME"]) 
+map_cluster1$cluster_ppp<-as.factor(lisa_ppp$GetClusterIndicators())
+levels(map_cluster1$cluster_ppp)<-lisa_ppp$GetLabels()
+```
+
+
+```{r}
+  ggplot(data=map_cluster1) +
+  geom_sf(aes(fill=map_cluster1$cluster_ppp))
+```
+
+En este caso podemos observar que existen dos clusters principales. El primero es en el centro con autocorrelación espacial de crimen HIGH-HIGH y el segundo en el oeste con LOW-LOW. Podemos ver que en el caso del oeste este será un lugar donde los precios de las viviendas serán muy altos, mientras que en la mayoría del centro bajos.
+
+***PLUMB***
+
+```{r}
+map_cluster2 <- columbus_shp_alt
+```
+
+```{r}
+lisa_ppp <-local_moran(queen_w_2, columbus_shp_alt["PLUMB"]) 
+map_cluster2$cluster_ppp<-as.factor(lisa_ppp$GetClusterIndicators())
+levels(map_cluster2$cluster_ppp)<-lisa_ppp$GetLabels()
+```
+
+
+```{r}
+  ggplot(data=map_cluster2) +
+  geom_sf(aes(fill=map_cluster2$cluster_ppp))
+```
+
+En este caso de nuevo existen dos principales clústers, uno en el centro con autocorrelación HIGH-HIGH y uno en el este con LOW-LOW. En este caso vemos también que la zona donde es LOW existen viviendas con mayor valor y donde es HIGH con menor. Esto debido a que mientras menos plomería exista menor será el valor de la propiedad.
+
+***Income***
+
+```{r}
+map_cluster3 <- columbus_shp_alt
+```
+
+```{r}
+lisa_ppp <-local_moran(queen_w_2, columbus_shp_alt["INC"]) 
+map_cluster3$cluster_ppp<-as.factor(lisa_ppp$GetClusterIndicators())
+levels(map_cluster3$cluster_ppp)<-lisa_ppp$GetLabels()
+```
+
+
+```{r}
+  ggplot(data=map_cluster3) +
+  geom_sf(aes(fill=map_cluster3$cluster_ppp))
+```
+
+Caso muy similar a los anteriores. Vemos que las zonas con bajo crimen y alto nivel de plomería tienen alto income y que, por el contrario, las de alto crimen y baja plomería tienen bajo income. Esto claramente también está relacionado con el valor de las propiedades.
+
+***Distancia a centros de negocios***
+
+```{r}
+map_cluster4 <- columbus_shp_alt
+```
+
+```{r}
+lisa_ppp <-local_moran(queen_w_2, columbus_shp_alt["DISCBD"]) 
+map_cluster4$cluster_ppp<-as.factor(lisa_ppp$GetClusterIndicators())
+levels(map_cluster4$cluster_ppp)<-lisa_ppp$GetLabels()
+```
+
+
+```{r}
+  ggplot(data=map_cluster4) +
+  geom_sf(aes(fill=map_cluster4$cluster_ppp))
+```
+
+En este caso vemos que las zonas del centro-oeste cuentan con autocorrelación LOW-LOW, mientras que en el este y el oeste son HIGH-HIGH. Estas son de nuevo características que se comparten con las zonas con casas de alto valor. Parece que mientras más cerca estén del centro de negocios mayor será el valor.
+
+###Predicción
+
+```{r}
+fitted_sp <- SpatialPolygonsDataFrame(columbus_shp, data = data.frame(spatial_durbin_2$fitted.values))
+```
+
+```{r}
+spplot(fitted_sp, "spatial_durbin_2.fitted.values", main = "Fitted Values")
+```
+
+##Hallazgos
+
+- Entre el Spatial Durbin Model y el modelo GWR, es el primero el que cuenta con el menor AIC. Debido a esto es que se eligió como el modelo para hacer la predicción y el análisis final, aunque ambos contaron con AICs muy similares. Lo especial o diferente de este tipo de modelo es que toma en cuenta el lag de nuestras variables.
+- El centro de la región es la que se predice que contará con los precios más bajos con que van de 3.5 a 4. Por el contrario, son el este y partes del oeste donde tenemos clústers de hogares con mayor precio.
+- Una de las variables más importantes es sin duda alguna la de la distancia a los centros de negocios, ya que parece que entre más cercano se esté mayor es el precio. Esto tiene sentido ya que es posible que las personas esén dispuestas a pagar más para estar cerca de su trabajo o de zonas con atracciones como entretenimiento, restaurantes, etc. Así mismo, parece haber una relación entre esto y otras variables como el crimen.
+- En general, todas las variables estudiadas parecen estar relacionadas entre sí. Las zonas donde el precio es mayor también suelen contar con menos crimen, mayor plomería y están cerca a los centros de negocios. Por el contrario, los lugares con menor precio cuentan con más crimen, son más remotos y menos hogares cuentan con plomería. Esto también habla de que para vivir en las zonas con mayor comodidades o servicios se necesita pagar un precio alto, o si no posiblemente se tendrá que vivir en una zona con mucho peores condiciones de vida.
+- La variable con mayor coeficiente en nuestro modelo elegido es la distancia a los centros de negocios, ya que un cambio en 1 en esta provocará un cambio de 0.18 en el valor de la casa.
+- Aunque este modelo sea el que obtuvo menor error, parece que el uso de las variables lag no es necesario ya que estas no son estadísticamente significativas. Por el contrario, las variables sin lag son todas significativas siendo el ingreso del hogar y la distancia a los centros las variables más significativas.
+
+
