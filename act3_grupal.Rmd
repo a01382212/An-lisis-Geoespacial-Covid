@@ -1,0 +1,952 @@
+---
+title: "Actividad 3"
+author: "Equipo 3"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: flatly
+    toc: true
+    toc_depth: 3
+    number_sections: TRUE
+    toc_float:
+      smooth_scroll: FALSE
+      collapsed: FALSE
+---
+
+Alhelí Acosta de la Rosa // A01382195   
+Ana Gabriela Sánchez Ruiz // A00828813   
+Andrea Natalia Padilla Cedeño // A01197560   
+Litzy Duque González // A01382189   
+Rodrigo Gutiérrez Del Bosque //  A01382212   
+
+## Librerías
+```{r, include=FALSE}
+library(sf)
+library(tmap)
+library(spdep)
+library(rgdal)
+library(tidyverse)
+library(tigris)
+library(mapview)
+library(GWmodel)    
+library(regclass)
+library(viridis)
+library(grid)
+```
+
+#Importar data no espacial y geoespacial
+### DATA NO ESPACIAL y manipulación de datos
+```{r, warning=FALSE, include=FALSE}
+hospitales <-read_csv("C:/Users/DiDi/Downloads/spda_covid19/denue_hospitales.csv")
+hospitales_1 <- hospitales %>% select(cve_ent, entidad, cve_mun, municipio, codigo_act, nombre_act, per_ocu, ageb, latitud, longitud)
+
+### Filtrar hospitales y centros de salud física del sector privado
+hospitales_2 <- hospitales_1 %>% filter (codigo_act %in% c(621111, 621113, 621115, 621398, 621491, 621610, 621991, 622111, 622311, 623111, 624231))
+```
+
+```{r, warning=FALSE, include=FALSE}
+## Base de Datos Covid
+covid <- read_csv("C:/Users/DiDi/Downloads/spda_covid19/covid19_confirmados.csv")
+```
+
+```{r}
+##  Creación de campo llave para unir bases de datos
+hospitales_2$clave <- NA
+
+# 1 y 1
+hospitales_2$clave <-  ifelse(hospitales_2$cve_ent < 10 & hospitales_2$cve_mun < 10, paste(hospitales_2$cve_ent, hospitales_2$cve_mun, sep = "00"), hospitales_2$clave)
+         
+# 1 y 2 
+hospitales_2$clave <- ifelse(hospitales_2$cve_ent < 10 & hospitales_2$cve_mun >= 10 & hospitales_2$cve_mun < 100, paste(hospitales_2$cve_ent, hospitales_2$cve_mun, sep = "0"), hospitales_2$clave)
+
+# 1 y 3
+hospitales_2$clave <- ifelse(hospitales_2$cve_ent < 10 &  hospitales_2$cve_mun >= 100, paste(hospitales_2$cve_ent, hospitales_2$cve_mun, sep = ""), hospitales_2$clave)
+
+# 2 y 1          
+hospitales_2$clave <- ifelse(hospitales_2$cve_ent >= 10 & hospitales_2$cve_mun < 10, paste(hospitales_2$cve_ent, hospitales_2$cve_mun, sep = "00"), hospitales_2$clave) 
+
+# 2 y 2
+hospitales_2$clave <- ifelse(hospitales_2$cve_ent >= 10 & hospitales_2$cve_mun < 100 & hospitales_2$cve_mun >= 10, paste(hospitales_2$cve_ent, hospitales_2$cve_mun, sep = "0"), hospitales_2$clave)
+
+# 2 y 3
+hospitales_2$clave <- ifelse(hospitales_2$cve_ent >= 10 & hospitales_2$cve_mun >= 100, paste(hospitales_2$cve_ent, hospitales_2$cve_mun, sep = ""), hospitales_2$clave)
+
+```
+
+```{r,warning=FALSE,include=FALSE}
+## Conversión de variables
+covid$poblacion_2022 <- as.numeric(covid$poblacion_2022)
+covid$hogrem2015 <- as.numeric(covid$hogrem2015)
+covid$hogremjefmuj2015 <- as.numeric(covid$hogremjefmuj2015)
+covid$popnoafmed2015 <- as.numeric(covid$popnoafmed2015)
+covid$gini2015 <- as.numeric(covid$gini2015)
+covid$popden2020 <- as.numeric(covid$popden2020)
+
+```
+```{r}
+## Limpieza de na's
+covid <- covid %>% mutate(across(where(is.numeric), ~replace_na(., median(., na.rm=TRUE))))
+```
+
+```{r}
+# Join de las bases de datos con la cantidad de hospitales por municipio
+hospitales_2$municipio <- as.factor(hospitales_2$municipio)
+count_hospitales <- hospitales_2[ , c(11)]  %>% group_by(clave) %>% count(clave) %>% rename("hosp_num" = "n")
+
+covid_2 <- merge(covid, count_hospitales, by.x = "cve_ent", by.y = "clave", all.x=TRUE)
+```
+
+```{r,warning=FALSE,include=FALSE}
+municipio_estado <-read_csv("C:/Users/DiDi/Downloads/rangos_pobreza_loc_urbana_2020.csv")
+municipio_estado <- municipio_estado %>% select(clave_municipio,entidad)
+```
+
+
+```{r}
+covid_2 <- merge(covid_2, municipio_estado, by.x = "cve_ent", by.y = "clave_municipio", all.x=TRUE)
+```
+
+```{r,include=FALSE}
+covid_2$hosp_num[is.na(covid_2$hosp_num)] <- 0
+```
+
+```{r,include=FALSE}
+sapply(covid_2, function(x) sum(is.na(x)))
+```
+
+```{r}
+covid_2$hosp_numx10000 <- covid_2$hosp_num * 10000 / covid_2$poblacion_2022
+```
+
+```{r}
+## Agrupar casos por año 2020 Y 2021
+#Run once!!
+covid_2 <- covid_2[ , -33]
+columnas2020 <- covid_2[ , c(19:29)]
+columnas2021 <- covid_2[ , c(30:41)]
+
+
+
+covid_2$total2020 <- rowSums(columnas2020)
+covid_2$total2021 <- rowSums(columnas2021)
+## Promedio de ambas columnas 2020 y 2021
+covid_2$avg_casos <- rowMeans(covid_2[, c(45,46)], na.rm=TRUE)
+
+## Casos de Covid por cada 10,000 habitantes
+covid_2$casosx10mil <- (covid_2$avg_casos/covid_2$poblacion_2022) * 10000
+```
+
+```{r}
+covid_2$hogrem2015 <- covid_2$hogrem2015 / 100
+covid_2$hogremjefmuj2015 <- covid_2$hogremjefmuj2015 / 100
+covid_2$popnoafmed2015 <- covid_2$popnoafmed2015 / 100
+covid_2$inclusion_fin_2019 <- covid_2$inclusion_fin_2019 / 100
+covid_2$porcentaje_pob_pobreza <- covid_2$porcentaje_pob_pobreza / 100
+covid_2$porcentaje_pob_pobreza_ext <- covid_2$porcentaje_pob_pobreza_ext / 100
+covid_2$porcentaje_pob_servicios_salud <- covid_2$porcentaje_pob_servicios_salud / 100
+covid_2$porcentaje_pob_acceso_ss <- covid_2$porcentaje_pob_acceso_ss / 100
+covid_2$'pob_6-14_no_edu' <- covid_2$'pob_6-14_no_edu' / 100
+```
+
+```{r, include=FALSE}
+# No hay NA's en los datos
+covid_casos100 <- covid_2[covid_2['casosx10mil'] >50]
+```
+### Significancia de las variables a través de XGBoost y Random Forest
+```{r}
+covid_boost <- covid_2[c('poblacion_2022','hogrem2015','hogremjefmuj2015',
+                         'popnoafmed2015','gini2015','popden2020','crimen_2019',
+                         'inclusion_fin_2019','porcentaje_pob_pobreza',
+                         'porcentaje_pob_pobreza_ext','porcentaje_pob_servicios_salud',
+                         'porcentaje_pob_acceso_ss','pob_6-14_no_edu','rezago_social',
+                         'grado_rs','casosx10mil','hosp_numx10000')]
+```
+**XGboost**
+
+```{r, warning=FALSE, include=FALSE}
+library(caret)
+library(xgboost)
+
+regressor=train(casosx10mil ~ ., data= covid_boost, method = "xgbTree",trControl = trainControl("cv", number = 10))
+```
+
+```{r}
+varImp(regressor)
+```
+
+
+**Random Forest**
+
+```{r}
+library(janitor)
+covid_tree <- clean_names(covid_boost)
+regressor_2 <- train(casosx10mil ~ ., data= covid_tree, method = 'rpart2',preProcess = c("center", "scale"),na.action=na.pass)
+
+varImp(regressor_2)
+```
+
+## Decision de variables
+
+Después de ver aplicado el método de xgboost y random forest, llegamos que las variables significantes para el análisis espacial sería:
+
+- rezago_social
+- popden2020
+- porcentaje_pob_acceso_ss
+- porcentaje_pob_pobreza
+- hogrem2015
+- hosp_numx10000
+
+```{r,include=FALSE}
+covid_3 <- covid_2[c('cve_ent','mpio','entidad','rezago_social','popden2020','porcentaje_pob_acceso_ss','porcentaje_pob_pobreza','hogrem2015','hosp_numx10000','casosx10mil')]
+```
+**Filtrar por zona sur**
+```{r}
+zona_sur <- covid_3  %>% filter (entidad %in% c("Campeche", "Chiapas", "Guerrero", "Oaxaca", "Quintana Roo","Tabasco", "Veracruz", "Yucatan"))
+```
+
+
+
+
+### DATA GEOESPACIAL
+```{r,include=FALSE}
+map <-readOGR(dsn = "C:/Users/DiDi/Downloads/spda_covid19/shp_mx_mpios/mx_mpios.shp")
+```
+
+```{r,include=FALSE}
+map1 <-readOGR(dsn = "C:/Users/DiDi/Downloads/spda_covid19/shp_mx_mpios/mx_mpios.shp")
+```
+
+**GEO JOIN**
+```{r, warning=FALSE}
+mexico_geodata<-geo_join(map,covid_2,'IDUNICO','cve_ent',how='inner')
+```
+** join con zona sur**
+```{r, warning=FALSE}
+zona_sur_geodata <-geo_join(map1,zona_sur,'IDUNICO','cve_ent',how='inner')
+```
+
+
+```{r,include=FALSE}
+## para las claves entidad
+nombres_cve <-unique(zona_sur_geodata$CVE_ENT)
+nombres_cve
+```
+
+
+```{r}
+map_sur <- map_sur <-map1[map1$CVE_ENT == 4|map1$CVE_ENT == 7|map1$CVE_ENT == 12|map1$CVE_ENT == 20|map1$CVE_ENT == 23|map1$CVE_ENT == 27 | map1$CVE_ENT == 20 | map1$CVE_ENT == 31,]
+lmat1 <- coordinates(map_sur)
+names(lmat1) <- c("lon","lat")
+map.centroid1 <- coordinates(map_sur)
+
+```
+
+
+## Diferencias entre la estimación de modelo de regresión global y la estimación del método de Geographic Weighted Regression (GWR)
+
+En el GWR agrega un nivel de sofisticación de modelado al permitir que las relaciones entre las variables independientes y dependientes varíen según la localidad y no por relación entre variables.
+El método GWR permite tomar en cuenta para el modelado variables no estacionarias como factores demográficos, clima, etc.
+El GWR a diferencia de un modelo de regresión global permite la interpolación de valores que no están incluidos en el conjunto de datos
+ A diferencia de un modelo de regresión global GWR debe aplicarse a conjuntos de datos con varios cientos de características. No es un método apropiado para conjuntos de datos pequeños ya que no funciona con datos que son multipunto
+
+
+
+## Matrices de conectividad 
+
+
+## MÉXICO 
+
+### modelando vecinos espaciales y matrices de conectividad espacial:
+- Los resultados del sumario de la spatial weight matrix son que hay 2456 unidades de área/ municipios en México
+- La mayor parte de las unidades geográficas tienen 22 vecinos
+- La unidad de área menos conectada tiene 1 vecino
+
+```{r}
+swm_queen <- poly2nb(map, queen = TRUE)
+summary(swm_queen)
+```
+```{r}
+swm_rook <- poly2nb(map, queen = FALSE)
+summary(swm_rook)
+```
+
+### Mapeando "queen contiguity" basado en mapas de vecinos
+
+```{r}
+suppressWarnings({
+plot(map, borders = 'lightgrey') 
+plot(swm_queen, coordinates(map), pch = 19, cex = 0.6, add = TRUE, col = "red")
+title(main = "Queen Contiguity", cex.main = 0.9)
+})
+```
+### Mapeando "rook contiguity" basad en neighbors maps
+Como podemos ver los resultados de la matriz de conectividad son muy similares que al mapearlo con enfoque de contiguedad rook
+```{r}
+suppressWarnings({
+plot(map, borders = 'lightgrey') 
+plot(swm_rook, coordinates(map), pch = 19, cex = 0.6, add = TRUE, col = "red")
+title(main = "Rook Contiguity", cex.main = 0.9)
+})
+```
+
+### calculando distancia basada en los vecinos
+
+Aquí vamos a calcular las medidas de tendencia central de nuestras distancias hacia los vecinos para más adelante poder mapearlos
+```{r}
+coords <- coordinates(map)
+head(coords)
+```
+
+```{r}
+knn1 <- knn2nb(knearneigh(coords))
+knn1_dist <- unlist(nbdists(knn1, coords, longlat = TRUE))
+summary(knn1_dist)
+
+```
+```{r}
+dwm <- dnearneigh(coords, 0 ,229, longlat = TRUE)
+dwm
+```
+ - Cada municipio en promedio tiene una cercanía con otras 48 intersecciones
+ -  Igualmente vemos que la distancia máxima a la que puede estar un vecino es a 229.364 km
+ 
+```{r}
+plot(map, border = "lightgrey")
+plot(dwm, coords, add = TRUE, pch = 19, cex = 0.6)
+title(main = "Neighbours within 229 km", cex.main = 0.9)
+```
+ 
+```{r}
+rswm_queen <- nb2listw(swm_queen, style = "W", zero.policy = TRUE)
+rswm_queen
+```
+
+## ZONA SUR
+
+### modelando vecinos espaciales y matrices de conectividad espacial:
+- Los resultados del sumario de la spatial weight matrix son que hay 1124 unidades de área/ municipios en la zona sur
+- La mayor parte de las unidades geográficas tienen 22 vecinos
+- La unidad de área menos conectada tiene 1 vecino
+
+```{r}
+swm_queen_sur <- poly2nb(map_sur, queen = TRUE)
+summary(swm_queen_sur)
+```
+```{r}
+swm_rook_sur <- poly2nb(map_sur, queen = FALSE)
+summary(swm_rook_sur)
+```
+
+
+### Mapeando "queen contiguity" basado en mapas de vecinos Zona Sur
+```{r}
+map.link_a_queen1<-poly2nb(map_sur,queen=T)
+map.linkW_a_queen1<-nb2listw(map.link_a_queen1, style="W")
+plot(map_sur,border="blue",axes=TRUE,las=1)
+plot(map_sur,col="grey",border=grey(0.11),axes=T,add=T) 
+plot(map.linkW_a_queen1,coords=map.centroid1,pch=19,cex=0.1,col="red",add=T)
+title("SWM -CONNECTIVITY MATRIX Sur") 
+box()
+
+```
+
+### Mapeando "rook contiguity" basad en neighbors maps
+Como podemos ver los resultados de la matriz de conectividad son muy similares que al mapearlo con enfoque de contiguedad rook
+```{r}
+suppressWarnings({
+plot(map_sur, borders = 'lightgrey') 
+plot(swm_rook_sur, coordinates(map_sur), pch = 19, cex = 0.6, add = TRUE, col = "red")
+title(main = "Rook Contiguity Zona Sur", cex.main = 0.9)
+})
+```
+
+### calculando distancia basada en los vecinos
+
+Aquí vamos a calcular las medidas de tendencia central de nuestras distancias hacia los vecinos para más adelante poder mapearlos
+```{r}
+coords_sur <- coordinates(map_sur)
+head(coords_sur)
+```
+```{r}
+knn2 <- knn2nb(knearneigh(coords_sur))
+knn2_dist <- unlist(nbdists(knn2, coords_sur, longlat = TRUE))
+summary(knn2_dist)
+
+```
+```{r}
+dwm2 <- dnearneigh(coords_sur, 0 ,111, longlat = TRUE)
+dwm2
+```
+ - Cada municipio en promedio tiene una cercanía con otras 188 intersecciones
+ -  Igualmente vemos que la distancia máxima a la que puede estar un vecino es a 111.5 km y la menor distancia es medio kilometro
+```{r}
+plot(map_sur, border = "lightgrey")
+plot(dwm2, coords_sur, add = TRUE, pch = 19, cex = 0.6)
+title(main = "Neighbours within 111 km", cex.main = 0.9)
+```
+
+
+
+Elaborar ESDA a partir del rezago espacial de 3-5 variables. Identificar la posible presencia de autocorrelación espacial en las variables seleccionadas.
+
+
+# 3. ESDA
+
+Elaborar ESDA a partir del rezago espacial de 3-5 variables. Identificar la posible presencia de autocorrelación espacial en las variables seleccionadas.
+
+
+```{r}
+rswm_queen_sur <- nb2listw(swm_queen_sur, style = "W", zero.policy = TRUE)
+rswm_queen_sur
+```
+
+```{r}
+rswm_rook_sur <- nb2listw(swm_rook_sur, style = "W", zero.policy = TRUE)
+rswm_rook_sur
+```
+
+
+## Spatial Lag (Rezago espacial) con queen contiguity
+
+### Variable 1: 'Casosx10mil'
+
+```{r}
+### lets create a spatial lag of dataset's variable 
+zona_sur_geodata$sp_casosx10mil<-lag.listw(rswm_queen_sur,zona_sur_geodata$casosx10mil,zero.policy=TRUE)
+# texas_geodata$sp_median_household_income
+```
+
+
+```{r}
+casosx10mil <- qtm(zona_sur_geodata, "casosx10mil")
+spatial_lag_casosx10mil <- qtm(zona_sur_geodata, "sp_casosx10mil")
+```
+
+
+```{r}
+tmap_arrange(casosx10mil, spatial_lag_casosx10mil, asp = 1, ncol =2) 
+#+ title('Spatial Lagged Variables')
+
+```
+
+En este caso se observa que al observar el lag existe una mayor cantidad de casos en general, especialmente en la región del este. Esto afecta principalmente a regiones como Tabasco y Quintana Roo. Sin embargo, a la hora de ajustarlo se ve que existen zonas que incrementarán como Campeche.
+
+### Presencia de autocorrelación espacial en Casosx10mil
+
+
+```{r}
+### identifying and measuring spatial autocorrelation 
+
+# Moran's I Test 
+moran.test(zona_sur_geodata$casosx10mil, listw = rswm_queen_sur, zero.policy = TRUE, na.action = na.omit)
+```
+
+Observamos que el estatístico es superior a 0, sin embargo par que la autocorrelación no es muy alta y solo de grado medio.
+
+```{r}
+# Computing Moran’s I correlogram
+Moran_Correlogram <- sp.correlogram(swm_queen_sur, zona_sur_geodata$casosx10mil, order = 6, method = "I", style = "B")
+plot(Moran_Correlogram)
+```
+
+
+
+### Variable 2: 'hosp_numx10000'
+
+```{r}
+### lets create a spatial lag of dataset's variable 
+zona_sur_geodata$sp_hosp_numx10000<-lag.listw(rswm_queen_sur,zona_sur_geodata$hosp_numx10000,zero.policy=TRUE)
+# texas_geodata$sp_median_household_income
+```
+
+
+```{r}
+hosp_numx10000 <- qtm(zona_sur_geodata, "hosp_numx10000")
+spatial_lag_hosp_numx10000<- qtm(zona_sur_geodata, "sp_hosp_numx10000")
+```
+
+
+```{r}
+tmap_arrange(hosp_numx10000, spatial_lag_hosp_numx10000, asp = 1, ncol =2) 
+#+ title('Spatial Lagged Variables')
+
+```
+
+Podemos observar que las regiones con mayor hospitales sin el lag será principalmente en la Riviera Maya, además que al calcular el lag la cantidad es mayor en la mayoría de los municipios.
+
+
+## Presencia de autocorrelación
+
+
+```{r}
+### identifying and measuring spatial autocorrelation 
+
+# Moran's I Test 
+moran.test(zona_sur_geodata$hosp_numx10000, listw = rswm_queen_sur, zero.policy = TRUE, na.action = na.omit)
+```
+
+En este caso la autocorrelación es muy debil, nos indica que sí pueden existir algunas zonas con autorocorrelación espacial en cuanto al número de habitantes, pero parece que los casos dependen más de otros factores demográficos.
+
+
+```{r}
+# Computing Moran’s I correlogram
+Moran_Correlogram <- sp.correlogram(swm_queen_sur, zona_sur_geodata$hosp_numx10000, order = 6, method = "I", style = "B")
+plot(Moran_Correlogram)
+```
+
+
+
+### Variable 3: 'popden2020'
+
+```{r}
+### lets create a spatial lag of dataset's variable 
+zona_sur_geodata$sp_popden2020<-lag.listw(rswm_queen_sur,zona_sur_geodata$popden2020,zero.policy=TRUE)
+# texas_geodata$sp_median_household_income
+```
+
+
+```{r}
+popden2020 <- qtm(zona_sur_geodata, "popden2020")
+spatial_lag_popden2020 <- qtm(zona_sur_geodata, "popden2020")
+```
+
+
+```{r}
+tmap_arrange(popden2020, spatial_lag_popden2020, asp = 1, ncol =2) 
+#+ title('Spatial Lagged Variables')
+
+```
+Observando la densidad poblacional vemos que existe muy poca diferencia al ver el lag con el actual, esto debido a que la población cambiará muy poco en un periodo tan corto.
+
+
+## Presencia de autocorrelación
+
+
+```{r}
+### identifying and measuring spatial autocorrelation 
+
+# Moran's I Test 
+moran.test(zona_sur_geodata$popden2020, listw = rswm_queen_sur, zero.policy = TRUE, na.action = na.omit)
+```
+
+En este caso la autocorrelación es mayor, pero sigue siendo debil-media. Sí pueden existir grupos de zonas donde la población está espacialmente autocorrelacionada, pero parece que esto se limita a solo ciertos estados o municipios.
+
+
+```{r}
+# Computing Moran’s I correlogram
+Moran_Correlogram <- sp.correlogram(swm_queen_sur, zona_sur_geodata$popden2020, order = 6, method = "I", style = "B")
+plot(Moran_Correlogram)
+```
+
+
+
+### Variable 4: 'porcentaje_pob_acceso_ss'
+
+```{r}
+### lets create a spatial lag of dataset's variable 
+zona_sur_geodata$sp_porcentaje_pob_acceso_ss<-lag.listw(rswm_queen_sur,zona_sur_geodata$porcentaje_pob_acceso_ss,zero.policy=TRUE)
+# texas_geodata$sp_median_household_income
+```
+
+
+```{r}
+porcentaje_pob_acceso_ss <- qtm(zona_sur_geodata, "porcentaje_pob_acceso_ss")
+spatial_lag_porcentaje_pob_acceso_ss <- qtm(zona_sur_geodata, "sp_porcentaje_pob_acceso_ss")
+```
+
+
+```{r}
+tmap_arrange(porcentaje_pob_acceso_ss, spatial_lag_porcentaje_pob_acceso_ss, asp = 1, ncol =2) 
+#+ title('Spatial Lagged Variables')
+
+```
+En este caso podemos observar que al comparar el lag con ela ctual la población sin acceso a servicios de salud aumentó en la mayoría de los estados. Esto es en casi toda la región y nos da indicaciones de cómo el covid podría estar afectando estas zonas.
+
+
+## Presencia de autocorrelación
+
+
+```{r}
+### identifying and measuring spatial autocorrelation 
+
+# Moran's I Test 
+moran.test(zona_sur_geodata$porcentaje_pob_acceso_ss, listw = rswm_queen_sur, zero.policy = TRUE, na.action = na.omit)
+```
+Volvemos a observar una autocorrelación espacial media.
+
+```{r}
+# Computing Moran’s I correlogram
+Moran_Correlogram <- sp.correlogram(swm_queen_sur, zona_sur_geodata$casosx10mil, order = 6, method = "I", style = "B")
+plot(Moran_Correlogram)
+```
+
+
+
+## Spatial Lag (Rezago espacial) con rook contiguity
+
+### Variable 1: 'Casosx10mil'
+
+```{r}
+### lets create a spatial lag of dataset's variable 
+zona_sur_geodata$sp_casosx10mil<-lag.listw(rswm_rook_sur,zona_sur_geodata$casosx10mil,zero.policy=TRUE)
+# texas_geodata$sp_median_household_income
+```
+
+
+```{r}
+casosx10mil <- qtm(zona_sur_geodata, "casosx10mil")
+spatial_lag_casosx10mil <- qtm(zona_sur_geodata, "sp_casosx10mil")
+```
+
+
+```{r}
+tmap_arrange(casosx10mil, spatial_lag_casosx10mil, asp = 1, ncol =2) 
+#+ title('Spatial Lagged Variables')
+
+```
+
+Al observarlo con el método de rook vemos que en el mapa de la izquierda los casos han bajado, esto sobre todo en la zona este de la región, mientras que en la oeste los casos reportados se mantuvieron. Esto puede ser debido a una mejora en la pandemia o a una ineiciencia en los procesos de reporte.
+
+### Presencia de autocorrelación espacial en Casosx10mil
+
+
+```{r}
+### identifying and measuring spatial autocorrelation 
+
+# Moran's I Test 
+moran.test(zona_sur_geodata$casosx10mil, listw = rswm_rook_sur, zero.policy = TRUE, na.action = na.omit)
+```
+
+Observamos una de las mayores autocorrelaciones, aunque es media. Esto nos dice que los casos sí dependen en algunas zonas de la región, esto puede ser debido a factores socioeconómicos o relacionados a acciones del gobierno.
+
+```{r}
+# Computing Moran’s I correlogram
+Moran_Correlogram <- sp.correlogram(swm_rook_sur, zona_sur_geodata$casosx10mil, order = 6, method = "I", style = "B")
+plot(Moran_Correlogram)
+```
+
+
+
+### Variable 2: 'hosp_numx10000'
+
+```{r}
+### lets create a spatial lag of dataset's variable 
+zona_sur_geodata$sp_hosp_numx10000<-lag.listw(rswm_rook_sur,zona_sur_geodata$hosp_numx10000,zero.policy=TRUE)
+# texas_geodata$sp_median_household_income
+```
+
+
+```{r}
+hosp_numx10000 <- qtm(zona_sur_geodata, "hosp_numx10000")
+spatial_lag_hosp_numx10000<- qtm(zona_sur_geodata, "sp_hosp_numx10000")
+```
+
+
+```{r}
+tmap_arrange(hosp_numx10000, spatial_lag_hosp_numx10000, asp = 1, ncol =2) 
+#+ title('Spatial Lagged Variables')
+
+```
+Podemos observar que las regiones con mayor hospitales sin el lag será principalmente en la Riviera Maya, además que al calcular el lag la cantidad es mayor en la mayoría de los municipios.
+
+
+## Presencia de autocorrelación
+
+
+```{r}
+### identifying and measuring spatial autocorrelation 
+
+# Moran's I Test 
+moran.test(zona_sur_geodata$hosp_numx10000, listw = rswm_rook_sur, zero.policy = TRUE, na.action = na.omit)
+```
+
+En este caso observamos una autocorrelación todavía más baja. Esto nos indica que incluso usando el método de rook la cantidad de hospitales depende poco de los municipios vecinos y que afectan otras variables no estudiadas.
+
+
+```{r}
+# Computing Moran’s I correlogram
+Moran_Correlogram <- sp.correlogram(swm_rook_sur, zona_sur_geodata$hosp_numx10000, order = 6, method = "I", style = "B")
+plot(Moran_Correlogram)
+```
+
+
+
+### Variable 3: 'popden2020'
+
+```{r}
+### lets create a spatial lag of dataset's variable 
+zona_sur_geodata$sp_popden2020<-lag.listw(rswm_rook_sur,zona_sur_geodata$popden2020,zero.policy=TRUE)
+# texas_geodata$sp_median_household_income
+```
+
+
+```{r}
+popden2020 <- qtm(zona_sur_geodata, "popden2020")
+spatial_lag_popden2020 <- qtm(zona_sur_geodata, "popden2020")
+```
+
+
+```{r}
+tmap_arrange(popden2020, spatial_lag_popden2020, asp = 1, ncol =2) 
+#+ title('Spatial Lagged Variables')
+
+```
+Observando la densidad poblacional vemos que existe muy poca diferencia al ver el lag con el actual, esto debido a que la población cambiará muy poco en un periodo tan corto.
+
+
+## Presencia de autocorrelación
+
+
+```{r}
+### identifying and measuring spatial autocorrelation 
+
+# Moran's I Test 
+moran.test(zona_sur_geodata$popden2020, listw = rswm_rook_sur, zero.policy = TRUE, na.action = na.omit)
+```
+
+Usando el método de rook vemos que la autocorrelación es media-baja. Parece que sí existen algunas zonas donde los vecinos o el clúster afecta o define el valor de la densidad, pero también hay otras variables que lo definen.
+
+
+```{r}
+# Computing Moran’s I correlogram
+Moran_Correlogram <- sp.correlogram(swm_rook_sur, zona_sur_geodata$popden2020, order = 6, method = "I", style = "B")
+plot(Moran_Correlogram)
+```
+
+
+
+### Variable 4: 'porcentaje_pob_acceso_ss'
+
+```{r}
+### lets create a spatial lag of dataset's variable 
+zona_sur_geodata$sp_porcentaje_pob_acceso_ss<-lag.listw(rswm_rook_sur,zona_sur_geodata$porcentaje_pob_acceso_ss,zero.policy=TRUE)
+# texas_geodata$sp_median_household_income
+```
+
+
+```{r}
+porcentaje_pob_acceso_ss <- qtm(zona_sur_geodata, "porcentaje_pob_acceso_ss")
+spatial_lag_porcentaje_pob_acceso_ss <- qtm(zona_sur_geodata, "sp_porcentaje_pob_acceso_ss")
+```
+
+
+```{r}
+tmap_arrange(porcentaje_pob_acceso_ss, spatial_lag_porcentaje_pob_acceso_ss, asp = 1, ncol =2) 
+#+ title('Spatial Lagged Variables')
+
+```
+En este caso podemos observar que al comparar el lag con ela ctual la población sin acceso a servicios de salud aumentó en la mayoría de los estados. Esto es en casi toda la región y nos da indicaciones de cómo el covid podría estar afectando estas zonas.
+
+
+## Presencia de autocorrelación
+
+
+```{r}
+### identifying and measuring spatial autocorrelation 
+
+# Moran's I Test 
+moran.test(zona_sur_geodata$porcentaje_pob_acceso_ss, listw = rswm_rook_sur, zero.policy = TRUE, na.action = na.omit)
+```
+
+En este caso vemos la segunda autocorrelación más alta del método de rook. Nos indica que el porcentaje de acceso a SS sí puede ser afectado por la zona espacial. Podríamos decir que algo que afecta son las medidas del gobierno estatal o local, lo cual podría afectar este acceso.
+
+
+```{r}
+# Computing Moran’s I correlogram
+Moran_Correlogram <- sp.correlogram(swm_rook_sur, zona_sur_geodata$casosx10mil, order = 6, method = "I", style = "B")
+plot(Moran_Correlogram)
+```
+
+## Modelo de Regresión Global No Espacial
+
+```{r}
+# Se establece una set seed y se dividen los datos en train y test 
+set.seed(123)  
+partition <- createDataPartition(y = covid_2$casosx10mil, p=0.7, list=F)
+train <- covid_2[partition, ]
+test <- covid_2[-partition, ]
+```
+
+```{r}
+covid_lm <- covid_2[c('rezago_social','popden2020','porcentaje_pob_acceso_ss','porcentaje_pob_pobreza','hosp_numx10000','casosx10mil')]
+```
+
+Para este modelo se utilizaron las siguientes variables:
+rezago_social,popden2020,porcentaje_pob_acceso_ss,porcentaje_pob_pobreza,hosp_numx10000 y casosx10mil
+
+```{r}
+lm_model_covid <- lm(casosx10mil ~ ., data = covid_lm)
+summary(lm_model_covid)
+```
+
+En donde podemos observar que las variables más significativas son todas a excepción del rezago social. El cual podemos concluir que si las variables como porcentaje de población, porcentaje de pobreza, porcentaje de personas que no tienen acceso a seguro social y el número de hospitales, afecta de una manera negativa, los casos de covid se verán en un aumento.
+
+
+```{r}
+test1 <- test
+lineal_prediction_test_data <- predict(lm_model_covid,test1)
+
+model_lineal <- RMSE(lineal_prediction_test_data, test1$casosx10mil)
+model_lineal
+```
+
+El RMSE del modelo es de 61.62524
+
+```{r}
+extractAIC(lm_model_covid)
+```
+
+Y tiene un AIC de 20185.81
+
+```{r}
+Modelo1 <- 20185.81
+```
+
+
+Especificar y estimar 2 modelos de regresión GWR. Considerar el uso de matrices de conectividad distintos para la especificación y estimación de cada modelo.
+
+## Modelos GWR
+Especificar y estimar 2 modelos de regresión GWR. Considerar el uso de matrices de conectividad distintos para la especificación y estimación de cada modelo.   
+\
+### Modelo 1
+```{r, warning=FALSE}
+# determine the kernel bandwidth
+bw1 <- bw.gwr(casosx10mil ~ hosp_numx10000 + popden2020 + porcentaje_pob_acceso_ss, 
+             approach = "AIC", adaptive = T, data=zona_sur_geodata) 
+```
+
+```{r, include=FALSE}
+# determine the kernel bandwidth
+bw2 <- bw.gwr(casosx10mil ~ hosp_numx10000 + popden2020 + porcentaje_pob_acceso_ss, 
+              approach = "AIC", adaptive = F, data=zona_sur_geodata) 
+```
+
+Para el primer modelo se utilizarán las variables de hospitales privados por cada 10,000 habitantes, la densidad de población y el porcentaje de población que carece de seguro social para predecir los casos de covid por cada 10,000 habitantes. Este modelo nos da un AIC de 11023.84.
+```{r, warning=FALSE}
+# fit the GWR model
+m.gwr <- gwr.basic(casosx10mil ~ hosp_numx10000 + popden2020 + porcentaje_pob_acceso_ss, adaptive = T, data = zona_sur_geodata, bw = bw1)
+m.gwr
+```
+
+```{r}
+gwr1_aic <- 11023.84
+```
+
+### Modelo 2 
+```{r, warning=FALSE}
+# determine the kernel bandwidth
+# segundo modelo
+bw1_2 <- bw.gwr(casosx10mil ~ rezago_social + popden2020 + porcentaje_pob_acceso_ss + porcentaje_pob_pobreza + hogrem2015 + hosp_numx10000, 
+             approach = "AIC", adaptive = T, data=zona_sur_geodata) 
+```
+
+Para el primer modelo se utilizarán las variables de rezago social, la densidad de población, el porcentaje de población que carece de seguro social, porcentaje de personas en situación de pobreza, hogares que recibieron remsesas y hospitales privados por cada 10,000 habitantes para predecir los casos de covid por cada 10,000 habitantes. Este modelo nos da un AIC de 10,956.51
+```{r, warning=FALSE}
+# fit the GWR model
+m.gwr2 <- gwr.basic(casosx10mil ~ rezago_social + popden2020 + porcentaje_pob_acceso_ss + porcentaje_pob_pobreza + hogrem2015 + hosp_numx10000, adaptive = T, data = zona_sur_geodata, bw = bw1_2)
+m.gwr2
+```
+
+```{r}
+gwr2_aic <- 10956.51
+```
+
+
+Considerando el criterio de AIC seleccionar el modelo de regresión que muestre un mejor desempeño de los resultados estimados.
+## Comparación de modelos
+Considerando el criterio de AIC seleccionar el modelo de regresión que muestre un mejor desempeño de los resultados estimados.
+
+```{r, include=FALSE}
+library(data.table)
+```
+
+Como podemos observar en la siguiente tabla, al comparar el AIC del modelo de regresión lineal con los dos modelos de GWR, podemos determinar que el mejor modelo para predecir los casos de covid por cada 10,000 habitantes es el modelo 2 de GWR que toma en cuenta las variables de rezago social, densidad de población, el porcentaje de población que carece de acceso al seguro social, porcentaje de pobreza, porcentaje de hogares que recibieron remesas y la cantidad de hospitales por cada 10,000 habitantes como variables predictoras. 
+
+```{r}
+data.table(Modelo_regresión_espacial = Modelo1,
+           GWR_1 = gwr1_aic,
+           GWR_2 = gwr2_aic)
+```
+
+
+## Hallazgos en mapas
+
+**Predicción de casos por 10 mil habitantes**
+
+```{r}
+gwr_sf = st_as_sf(m.gwr2$SDF)
+gwr_sf$y_predicted <- gwr_sf$yhat
+tm_shape(gwr_sf) +
+  tm_polygons("y_predicted", 
+              title="\nPredicción de Casos por 10 Mil Habitantes")
+```
+
+En este caso podemos observar en el mapa la predicción del reporte de casos de covid según nuestro segundo modelo GWR. Podemos observar que según el modelo las zonas de Chiapas y Oaxaca, sobre todo Chiapas, son aquellas donde se reportarán menos casos de Covid. Las zonas de Campeche, Quinta Roo y Yucatán son las que se encuentran en un punto "medio". Finalmente, Tabasco es la zona donde se predicen más casos de covid, habiendo incluso un municipio con más de 350 casos por 10 mil habitantes.
+
+**Predicción de R2 local**
+
+```{r}
+tm_shape(gwr_sf) +
+  tm_polygons("Local_R2", 
+              title="\nPredicción de R2 Local")
+```
+
+En el mapa podemos observar la predicción de la R2 local. En este podemos ver que Chiapas es el estado donde nuestro modelo explicar mejor la varianza al tener en el sur del estado hasta arriba del 90%. En cuanto al resto, en su mayoría oscila entre el 60 y el 75%. Usando esta métrica podemos ver en qué municipios nuestras estimaciones serán más confiables, aunque se deben tomar en cuenta también otras métricas.
+
+```{r}
+tval = gwr_sf %>% dplyr::select(all_of("rezago_social_TV")) %>% st_drop_geometry()
+signif = tval < -1.96 | tval > 1.96
+# map the counties
+tm_shape(gwr_sf) +
+  tm_fill("rezago_social",midpoint = 0) + tm_style("col_blind")+
+  tm_layout(legend.position = c("right","top"))+
+  # now add the tvalues layer
+  tm_shape(gwr_sf[signif,]) + tm_borders()
+```
+
+En este mapa tomamos en cuenta los t-values de rezago social para predecir los casos. Podemos ver que los estados donde el rezago social es significativo para predecir es principalmente en Tabasco y Campeche. Acá podemos ver que según nuestro modelo mientras más aumente el rezago social en estos municipios menos casos serán reportados.
+
+**Predicción de Población sin acceso a seguridad social**
+
+```{r}
+tval = gwr_sf %>% dplyr::select(all_of("porcentaje_pob_acceso_ss_TV")) %>% st_drop_geometry()
+signif = tval < -1.96 | tval > 1.96
+# map the counties
+tm_shape(gwr_sf) +
+  tm_fill("porcentaje_pob_acceso_ss",midpoint = 0) + tm_style("col_blind")+
+  tm_layout(legend.position = c("right","top"))+
+  # now add the tvalues layer
+  tm_shape(gwr_sf[signif,]) + tm_borders()
+```
+
+En este cao podemos ver cuatro clústers principales donde los t-values fueron significativos. Estos fueron principalmente en Oaxaca, Guerrero y Tabasco, donde la predicción es negativa y nos dice que sí en estos lugares el porcentaje de gente sin acceso aumenta los casos reportados serán disminuidos. Por el contrario, en un clúster pequeño en Campeche vemos que si este porcentaje aumenta, los casos también aumentarán.
+
+
+**Predicción de Hospitales Privados por 10 Mil Habitantes**
+
+```{r}
+tval = gwr_sf %>% dplyr::select(all_of("hosp_numx10000_TV")) %>% st_drop_geometry()
+signif = tval < -1.96 | tval > 1.96
+# map the counties
+tm_shape(gwr_sf) +
+  tm_fill("hosp_numx10000",midpoint = 0) + tm_style("col_blind")+
+  tm_layout(legend.position = c("right","top"))+
+  # now add the tvalues layer
+  tm_shape(gwr_sf[signif,]) + tm_borders()
+```
+
+En este mapa vemos que existen varios clústers, el principal ocupando parte de Campeche, Tabasco, Yucatán y Quintana Roo. En este clúster vemos que el t-value es significativo y que predice que cuando los hospitales privados aumenten también aumentarán los casos de covid reportados. Esto tiene sentido ya que si existen más instituciones que diagnostiquen entonces también los casos que se reporten aumentarán.
+
+
+## Variables Significativas y estrategia
+
+
+### Variables significativas
+
+porcentaje_pob_acceso_ss, porcentaje_pob_pobreza, hosp_numx10000 y casosx10mil
+
+### Estrategias
+
+Estrategia 1: Basado en las variables significativas y en el sistema actual de salud en México se puede identificar que aumentar la infraestructura en instituciones especialmente en las regiones rurales, fomentar la educación para la salud y mejorar la calidad son algunas de las problemáticas en el sistema de salud. Se recomienda generar un plan de salud en donde los mexicanos pueden tener acceso a este sistema de salud, aunque recordemos que ha habido planes de salud que no han sido satisfactorios, el gobierno también se puede apoyarse en esas fallas que han tenido para que en este no suceda y poder intentar que este plan de salud sea lo más satisfactorio posible. Así mismo, que se concentre en buscar lugares estratégicos para tener un centro médico donde las personas tengan un acceso fácil a este y su tiempo de traslado no sea tan tardado.
+
+Estrategia 2: Podemos observar en los mapas que existen ciertos municipios donde el acceso a servicios de seguridad social y el número de hospitales privados determinan en gran medida el reporte de casos de covid. Dado que nuestra hipótesis actual es que existen municipios donde el número de casos es bajo ya que no hay suficientes instituciones que detecten los casos actuales y los reporten. Debido a esto recomendamos que en las zonas donde el acceso es muy bajo, como algunos municipios de Chiapas y Oaxaca, se implementen estrtegias como módulos de paoyo y detección al Covid temporales y/o transporte hacia municipios cercanos con instituciones, así como kits de detección. De esta manera, aunque el acceso a salud no se solucione, se tendrá un mayor seguimiento a los casos existentes.
