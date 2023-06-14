@@ -1,0 +1,952 @@
+---
+title: "actividad grupal"
+author: "Equipo 3"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: flatly
+    toc: true
+    toc_depth: 3
+    number_sections: TRUE
+    toc_float:
+      smooth_scroll: FALSE
+      collapsed: FALSE
+---
+
+Alhelí Acosta de la Rosa // A01382195   
+Ana Gabriela Sánchez Ruiz // A00828813   
+Andrea Natalia Padilla Cedeño // A01197560   
+Litzy Duque González // A01382189   
+Rodrigo Gutiérrez Del Bosque //  A01382212   
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(readr)
+library(tidyverse) 
+library(caret)
+library(xgboost)
+library(caret)
+library(janitor)
+library(Metrics)
+```
+
+```{r, include=FALSE}
+hospitales <- read_csv("C:/Users/DiDi/Downloads/spda_covid19/denue_hospitales.csv")
+covid <- read_csv("C:/Users/DiDi/Downloads/spda_covid19/covid19_confirmados.csv")
+municipios <- read_csv("C:/Users/DiDi/Downloads/rangos_pobreza_loc_urbana_2020.csv")
+```
+
+```{r, include=FALSE}
+## Selección de variables importantes
+#Vamos a seleccionar las variables más importantes para el análisis:
+hospitales_1 <- hospitales %>% select(cve_ent, entidad, cve_mun, municipio, codigo_act, nombre_act, per_ocu, ageb, latitud, longitud)
+```
+
+```{r, include=FALSE}
+## Filtrar hospitales y centros de salud física del sector privado 
+hospitales_2 <- hospitales_1 %>% filter (codigo_act %in% c(621111, 621113, 621115, 621398, 621491, 621610, 621991, 622111, 622311, 623111, 624231))
+```
+
+```{r, include=FALSE}
+hospitales_3 <- hospitales_2
+```
+
+```{r, include=FALSE}
+## Filtrar por zona Sur 
+hospitales_2 <- hospitales_2 %>% filter (cve_ent %in% c(4,7,12,20,23,27,30,31))
+```
+
+```{r, include=FALSE}
+# Verificamos si hay NA's y como podemos observar no hay ningún dato vacío en esta base de datos
+# No hay NA's en los datos
+colSums(is.na(hospitales_2))
+colSums(is.na(hospitales_3))
+```
+
+```{r, include=FALSE}
+#Zona Sur
+hospitales_2$clave <- NA
+
+# 1 y 1, son 4 digitos al final
+hospitales_2$clave <-  ifelse(hospitales_2$cve_ent < 10 & hospitales_2$cve_mun < 10, paste(hospitales_2$cve_ent, hospitales_2$cve_mun, sep = "00"), hospitales_2$clave)
+         
+# 1 y 2 , son 4 digitos al final
+hospitales_2$clave <- ifelse(hospitales_2$cve_ent < 10 & hospitales_2$cve_mun >= 10 & hospitales_2$cve_mun < 100, paste(hospitales_2$cve_ent, hospitales_2$cve_mun, sep = "0"), hospitales_2$clave)
+
+# 1 y 3, son 4 digitos al final
+hospitales_2$clave <- ifelse(hospitales_2$cve_ent < 10 &  hospitales_2$cve_mun >= 100, paste(hospitales_2$cve_ent, hospitales_2$cve_mun, sep = ""), hospitales_2$clave)
+
+# 2 y 1, son 5 digitos al final          
+hospitales_2$clave <- ifelse(hospitales_2$cve_ent >= 10 & hospitales_2$cve_mun < 10, paste(hospitales_2$cve_ent, hospitales_2$cve_mun, sep = "00"), hospitales_2$clave) 
+
+# 2 y 2, son 5 digitos al final
+hospitales_2$clave <- ifelse(hospitales_2$cve_ent >= 10 & hospitales_2$cve_mun < 100 & hospitales_2$cve_mun >= 10, paste(hospitales_2$cve_ent, hospitales_2$cve_mun, sep = "0"), hospitales_2$clave)
+
+# 2 y 3, son 5 digitos al final
+hospitales_2$clave <- ifelse(hospitales_2$cve_ent >= 10 & hospitales_2$cve_mun >= 100, paste(hospitales_2$cve_ent, hospitales_2$cve_mun, sep = ""), hospitales_2$clave)
+```
+
+```{r, include=FALSE}
+#Zona Sur
+hospitales_3$clave <- NA
+
+# 1 y 1, son 4 digitos al final
+hospitales_3$clave <-  ifelse(hospitales_3$cve_ent < 10 & hospitales_3$cve_mun < 10, paste(hospitales_3$cve_ent, hospitales_3$cve_mun, sep = "00"), hospitales_3$clave)
+         
+# 1 y 2 , son 4 digitos al final
+hospitales_3$clave <- ifelse(hospitales_3$cve_ent < 10 & hospitales_3$cve_mun >= 10 & hospitales_3$cve_mun < 100, paste(hospitales_3$cve_ent, hospitales_3$cve_mun, sep = "0"), hospitales_3$clave)
+
+# 1 y 3, son 4 digitos al final
+hospitales_3$clave <- ifelse(hospitales_3$cve_ent < 10 &  hospitales_3$cve_mun >= 100, paste(hospitales_3$cve_ent, hospitales_3$cve_mun, sep = ""), hospitales_3$clave)
+
+# 2 y 1, son 5 digitos al final          
+hospitales_3$clave <- ifelse(hospitales_3$cve_ent >= 10 & hospitales_3$cve_mun < 10, paste(hospitales_3$cve_ent, hospitales_3$cve_mun, sep = "00"), hospitales_3$clave) 
+
+# 2 y 2, son 5 digitos al final
+hospitales_3$clave <- ifelse(hospitales_3$cve_ent >= 10 & hospitales_3$cve_mun < 100 & hospitales_3$cve_mun >= 10, paste(hospitales_3$cve_ent, hospitales_3$cve_mun, sep = "0"), hospitales_3$clave)
+
+# 2 y 3, son 5 digitos al final
+hospitales_3$clave <- ifelse(hospitales_3$cve_ent >= 10 & hospitales_3$cve_mun >= 100, paste(hospitales_3$cve_ent, hospitales_3$cve_mun, sep = ""), hospitales_3$clave)
+```
+
+```{r, include=FALSE}
+#Run once!!
+covid <- covid[ , -33]
+  
+columnas2020 <- covid[ , c(19:29)]
+columnas2021 <- covid[ , c(30:41)]
+
+covid$total2020 <- rowSums(columnas2020)
+covid$total2021 <- rowSums(columnas2021)
+## Promedio de ambas columnas 2020 y 2021
+covid$avg_casos <- rowMeans(covid[ , c(42,43)], na.rm=TRUE)
+
+## Casos de Covid por cada 10,000 habitantes
+covid$casosx10mil <- (covid$avg_casos/covid$poblacion_2022) * 10000
+```
+
+```{r, include=FALSE}
+#cambiar a numeric
+covid$poblacion_2022 <- as.numeric(covid$poblacion_2022)
+covid$hogrem2015 <- as.numeric(covid$hogrem2015)
+covid$hogremjefmuj2015 <- as.numeric(covid$hogremjefmuj2015)
+covid$popnoafmed2015 <- as.numeric(covid$popnoafmed2015)
+covid$gini2015 <- as.numeric(covid$gini2015)
+covid$popden2020 <- as.numeric(covid$popden2020)
+
+#Cambiar a decimal todos los porcentajes
+covid$hogrem2015 <- covid$hogrem2015 / 100
+covid$hogremjefmuj2015 <- covid$hogremjefmuj2015 / 100
+covid$popnoafmed2015 <- covid$popnoafmed2015 / 100
+covid$inclusion_fin_2019 <- covid$inclusion_fin_2019 / 100
+covid$porcentaje_pob_pobreza <- covid$porcentaje_pob_pobreza / 100
+covid$porcentaje_pob_pobreza_ext <- covid$porcentaje_pob_pobreza_ext / 100
+covid$porcentaje_pob_servicios_salud <- covid$porcentaje_pob_servicios_salud / 100
+covid$porcentaje_pob_acceso_ss <- covid$porcentaje_pob_acceso_ss / 100
+covid$'pob_6-14_no_edu' <- covid$'pob_6-14_no_edu' / 100
+```
+
+```{r, include=FALSE}
+covid <- covid %>% mutate(across(where(is.numeric), ~replace_na(., median(., na.rm=TRUE))))
+```
+
+```{r, include=FALSE}
+#Contar hospitales privados por municipio zona sur
+hospitales_2$municipio <- as.factor(hospitales_2$municipio)
+count_hospitales <- hospitales_2[ , c(11)]  %>% group_by(clave) %>% count(clave) %>% rename("hosp_num" = "n")
+#Contar hospitales privados por municipio todo méxico
+hospitales_3$municipio <- as.factor(hospitales_3$municipio)
+count_hospitales_2 <- hospitales_3[ , c(11)]  %>% group_by(clave) %>% count(clave) %>% rename("hosp_num" = "n")
+```
+
+```{r, include=FALSE,results='hide'}
+# Join de las bases de datos con la cantidad de hospitales por municipio zona sur
+covid_2 <- merge(covid, count_hospitales, by.x = "cve_ent", by.y = "clave", all.x=TRUE)
+# Join de las bases de datos con la cantidad de hospitales por municipio
+covid_3 <- merge(covid, count_hospitales_2, by.x = "cve_ent", by.y = "clave", all.x=TRUE)
+```
+
+```{r, include=FALSE}
+#cambiar los NA's por 0 ya que significa que no cuentan con hospitales privados zona sur
+covid_2$hosp_num[is.na(covid_2$hosp_num)] <- 0
+#cambiar los NA's por 0 ya que significa que no cuentan con hospitales privados
+covid_3$hosp_num[is.na(covid_3$hosp_num)] <- 0
+```
+
+```{r, include=FALSE, results='hide'}
+#agregar entidad a la base de datos de casos
+municipios <- select(municipios, entidad, clave_municipio)
+
+# Join de las bases de datos para agregar entidad zona sur
+covid_2 <- merge(covid_2, municipios, by.x = "cve_ent", by.y = "clave_municipio", all.x=TRUE)
+
+# Join de las bases de datos para agregar entidad
+covid_3 <- merge(covid_3, municipios, by.x = "cve_ent", by.y = "clave_municipio", all.x=TRUE)
+```
+
+```{r, include=FALSE}
+#eliminar filas duplicadas zona centro
+covid_2 <-distinct(covid_2)
+#eliminar filas duplicadas
+covid_3 <-distinct(covid_3)
+```
+
+```{r, include=FALSE}
+covid_2 <- covid_2 %>% filter (entidad %in% c("Campeche", "Chiapas", "Guerrero", "Oaxaca", "Quintana Roo", "Tabasco", "Veracruz de Ignacio de la Llave", "Yucatan"))
+```
+
+```{r, include=FALSE}
+#calcular hospitales por cada 10,000 habitantes zona centro
+covid_2$hosp_numx10000 <- covid_2$hosp_num * 10000 / covid_2$poblacion_2022
+#calcular hospitales por cada 10,000 habitantes
+covid_3$hosp_numx10000 <- covid_3$hosp_num * 10000 / covid_3$poblacion_2022
+```
+
+# Visualización de mapas
+```{r, include=FALSE, warning=FALSE}
+library(maptools)
+library(sf)
+library(sp)
+```
+
+```{r, include=FALSE}
+map <- readShapePoly("C:/Users/DiDi/Downloads/spda_covid19/shp_mx_mpios/mx_mpios.shp", IDvar="IDUNICO", proj4string=CRS("+proj=longlat"))
+```
+
+```{r, include=FALSE}
+map_2 <- read_sf("C:/Users/DiDi/Downloads/spda_covid19/shp_mx_mpios/mx_mpios.shp")
+```
+
+```{r, include=FALSE}
+covid_3 <- select(covid_3,rezago_social, popden2020, porcentaje_pob_acceso_ss, porcentaje_pob_pobreza, hogrem2015, hosp_numx10000, casosx10mil, cve_ent)
+```
+
+```{r, include=FALSE}
+lmat <- coordinates(map)
+names(lmat) <- c("lon","lat")
+map.centroid <- coordinates(map)
+summary(map)
+```
+
+```{r, include=FALSE}
+plot(map, col = "grey", border="blue", axes=TRUE,las=1) +
+  title(main= "Mexico's Municipalities")
+```
+
+```{r, include=FALSE}
+covid_3$IDUNICO <- covid_3$cve_ent
+```
+
+```{r, include=FALSE}
+library(tigris)
+options(tigris_use_cache = TRUE)
+map_3 <-right_join(map_2,covid_3,by='IDUNICO')
+```
+
+```{r, include=FALSE}
+names(map_3)
+```
+
+```{r, include=FALSE}
+map_3$rezago_social <- as.integer(map_3$rezago_social)
+```
+
+```{r, include=FALSE}
+library(tmap)
+map_3 <- map_3[!is.na(map_3$CODELAG),]
+```
+
+## Mapa Casos Covid en todo el país
+
+En el siguiente mapa podemos observar la distribución de casos de covid en todo el país, nos pareció interesante que en el sur hay una menor cantidad de casos, por lo que nos concentraremos principalmente en la Zona Sur para determinar aquellos factores socioeconómicos que tengan un efecto en los casos de covid y otros tipos de análisis.
+
+```{r}
+library(tmap)
+tm_shape(map_3) +
+  tm_polygons("casosx10mil", 
+              style="quantile", 
+              palette = c("lightyellow", "darkred"),
+              title="\nCasos \npor 10K habitantes")
+```
+En este mapa podemos observar que existen ciertos estados, en especial la zona norte del país (incluyendo a BC, BCS, NL, COAH) donde parece existir niveles altos de COVID. Es importante que estos son casos reportados, por lo que no significa que realmente haya habido más casos en estas regiones si no que se reportaron más.
+
+## Mapeo de Zona Sur
+### Casos Covid
+```{r, include=FALSE}
+covid_4 <- select(covid_2,rezago_social, popden2020, porcentaje_pob_acceso_ss, porcentaje_pob_pobreza, hogrem2015, hosp_numx10000, casosx10mil, cve_ent)
+```
+
+```{r, include=FALSE}
+lmat2 <- coordinates(map)
+names(lmat2) <- c("lon","lat")
+map.centroid2 <- coordinates(map)
+summary(map)
+```
+
+```{r, include=FALSE}
+plot(map, col = "grey", border="blue", axes=TRUE,las=1) +
+  title(main= "Mexico's Municipalities")
+```
+
+```{r, include=FALSE}
+covid_4$IDUNICO <- covid_4$cve_ent
+```
+
+```{r, include=FALSE}
+library(tigris)
+options(tigris_use_cache = TRUE)
+map_4 <-right_join(map_2,covid_4,by='IDUNICO')
+```
+
+```{r, include=FALSE}
+names(map_4)
+```
+
+```{r, include=FALSE}
+map_4$rezago_social <- as.integer(map_4$rezago_social)
+```
+
+```{r, include=FALSE}
+library(tmap)
+map_4 <- map_4[!is.na(map_4$CODELAG),]
+```
+
+En el siguiente mapa podemos ver más a detalle la cantidad de casos Covid por cada 10,000 habitantes en los estados de la Zona Sur, donde podemos ver que hubo más casos en los estados de Yucatán, Quintana Roo, Tabasco y Campeche, así como podemos observar que en el estado de Oaxaca es donde hubo los menores casos de Covid.
+
+```{r}
+library(tmap)
+tm_shape(map_4) +
+  tm_polygons("casosx10mil", 
+              style="quantile", 
+              palette = c("lightyellow", "darkred"),
+              title="\nCasos \npor 10K habitantes")
+```
+
+### Factores socioeconómicos
+
+**Densidad Poblacional**
+
+En el siguiente mapa podemos observar que la mayoría de los estados con mayor densidad poblacional se encuentran en el centro del país, a excepción de algunos outliers en cada estado.
+
+```{r}
+tm_shape(map_3) +
+  tm_polygons("popden2020", 
+              style="quantile", 
+              title="\nDensidad Poblacional")
+```
+
+**Densidad Poblacional - Zona Sur**   
+
+En el siguiente mapa podemos observar que la densidad poblacional se centra más en los estados de Veracruz, Tabasco y Chiapas.
+
+```{r}
+tm_shape(map_4) +
+  tm_polygons("popden2020", 
+              style="quantile", 
+              title="\nDensidad Poblacional")
+```
+
+**Hospitales privados por cada 10,000 habitantes - Zona Sur**  
+
+Podemos ver que los estados del Norte y regiones como la CDMX es donde encontramos con un mayor número de hospitales privados. Esto cambia en la zona sur donde estados como Oaxaca y Chiapas cuentan con muy pocos.
+
+```{r}
+tm_shape(map_3) +
+  tm_polygons("hosp_numx10000", 
+              style="quantile", 
+              palette = c("lightyellow", "yellow", "darkgreen"),
+              title="\nHospitales por \n10K Habitantes")
+```
+
+En el siguiente mapa podemos ver que la cantidad de hospitales por cada 10,000 habitantes es mayor en Veracruz, Tabasco, Yucatán y Quintana Roo. Es importante ver que si comparamos este mapa con el de los casos de Covid los estados donde hay más hospitales es también donde hay más casos, lo que puede indicar que en los otros estados la porción de casos reales que eran reportados era menor debido a menos instituciones de salud.
+
+```{r}
+tm_shape(map_4) +
+  tm_polygons("hosp_numx10000", 
+              style="quantile", 
+              palette = c("lightyellow", "yellow", "darkgreen"),
+              title="\nHospitales por \n10K Habitantes")
+```
+
+**Rezago Social - Zona Sur**
+
+En cuanto al rezago social, vemos que en general a nivel nacional es en estados del norte y otros como la CDMX donde existe bajo rezago social y que en el sur en su mayoría el rezago es medio - alto.
+
+```{r}
+tm_shape(map_3) +
+  tm_polygons("rezago_social", 
+              title="\nRezago Social")
+```
+
+En el siguiente mapa podemos observar que el rezago social es mayor en Guerrero, Oaxaca y Chiapas mientras que es menor en Tabasco, Campeche, Yucatán y Quintana Roo. Podemos ver que esto es similar a los estados donde hay más y menos hospitales.
+
+```{r}
+tm_shape(map_4) +
+  tm_polygons("rezago_social", 
+              style="quantile",
+              title="\nRezago Social")
+```
+
+**Porcentaje de la población que carece de acceso a seguro social - Zona Sur**   
+
+En el siguiente mapa podemos observar que el porcentaje de la población que carece de acceso a seguro social es mayor en Guerreo, Oaxaca, Chiapas y Campeche mientras que es menor en Veracruz, Tabasco y Yucatán. De nuevo, esto puede indicar que en ciertos estados los casos no eran descubiertos y/o reportados por falta de instituciones que lo hicieran.
+
+```{r}
+tm_shape(map_4) +
+  tm_polygons("porcentaje_pob_acceso_ss", 
+              style="quantile",
+              palette = c("darkgreen","yellow", "red"),
+              title="\nPorcentaje de la \nPoblación que carece de acceso a \na Seguro Social")
+```
+
+**Porcentaje de hogares que recibieron remesas en 2015 - Zona Sur**   
+
+En el siguiente mapa podemos observar que las principales regiones donde hay más población que recibe remesas es en los estados de Guerrero, Oaxaca y Veracruz.
+
+```{r}
+tm_shape(map_4) +
+  tm_polygons("hogrem2015", 
+              style="quantile",
+              palette = c("lightyellow","darkgreen"),
+              title="\nPorcentaje de Hogares \nque Recibieron Remesas")
+```
+
+**Porcentaje de población en situación de pobreza - Zona Sur**   
+
+En el siguiente mapa podemos observar que el porcentaje de la población que vive en situación de pobreza es mayor en los estados de Oaxaca y Puebla, y es menor en los estados de Veracruz, Tabasco y Quintana Roo.
+
+```{r}
+tm_shape(map_4) +
+  tm_polygons("porcentaje_pob_pobreza", 
+              style="quantile",
+              title="\nPorcentaje de la Pob. \nen Situación de Pobreza")
+```  
+
+## Clusters 
+```{r, include=FALSE}
+library(fastmap)
+library(skimr)
+library(tmap)
+library(tmaptools)
+library(spdep)
+library(rgeos)
+library(rgeoda)
+```
+
+**Nivel Nacional**
+
+```{r, include=FALSE}
+library(rgeoda)
+```
+
+```{r, include=FALSE}
+# Calcular el global moran
+map.link_a_queen1_n<-poly2nb(map_3,queen=T)
+map.linkW_a_queen_n<-nb2listw(map.link_a_queen1_n, style="W")
+```
+
+```{r, include=FALSE}
+queen_w_n <- queen_weights(map_3)
+```
+
+**Casos Covid nacional**
+```{r, include=FALSE}
+map_cluster_n <- map_3
+```
+
+```{r, include=FALSE}
+lisa_casos_n <-local_moran(queen_w_n, map_3["casosx10mil"]) 
+map_cluster_n$cluster_casos_n<-as.factor(lisa_casos_n$GetClusterIndicators())
+levels(map_cluster_n$cluster_casos_n)<-lisa_casos_n$GetLabels()
+```
+
+```{r}
+  ggplot(data=map_cluster_n) +
+  geom_sf(aes(fill=cluster_casos_n)) 
+```
+
+En este caso podemos ver que a nivel nacional existe en su mayoría poca autocorrelación significativa. Sin embargo, áreas como Coahuila, CDMX y Baja California cuentan con clústers High-High. Por el contrario, algunos estados como Puebla, Oaxaca y Chiapas cuentan con muchos clústers con bajos niveles de covid.
+
+
+**Densidad Poblacional Nacional**
+
+```{r, include=FALSE}
+map_cluster1_n <- map_3
+```
+
+```{r, include=FALSE}
+lisa_pop_n <-local_moran(queen_w_n, map_3["popden2020"]) 
+map_cluster1_n$cluster_pop_n<-as.factor(lisa_pop_n$GetClusterIndicators())
+levels(map_cluster1_n$cluster_pop_n)<-lisa_pop_n$GetLabels()
+```
+
+```{r}
+ggplot(data=map_cluster1_n) +
+  geom_sf(aes(fill=cluster_pop_n))
+```
+En este caso podemos ver que la mayoría de los clústers que existen son Low-Low, sobre todo en la zona Norte y en el Sur. En el norte la mayoría de los estados, a excepción de las capitales, son Low-Low. En el sur vemos a estados compo Quintana Roo y Yucatán.
+
+**Acceso a Seguridad Social**
+
+```{r, include=FALSE}
+map_cluster3_n <- map_3
+```
+
+```{r, include=FALSE}
+lisa_ppas_n <-local_moran(queen_w_n, map_3["porcentaje_pob_acceso_ss"]) 
+map_cluster3_n$cluster_ppas_n<-as.factor(lisa_ppas_n$GetClusterIndicators())
+levels(map_cluster3_n$cluster_ppas_n)<-lisa_ppas_n$GetLabels()
+```
+
+```{r}
+ggplot(data=map_cluster3_n) +
+  geom_sf(aes(fill=cluster_ppas_n))
+```
+En este caso vemos una clara diferencia entre el norte y el centro/sur del país, donde en el norte existen la mayoría de los clústers con mayor acceso a seguridad social. En cuanto a la región estudiada, el sur, vemos que a nivel nacional se relaciona con la región centro a cuanto a que la mayoría de los clústers son High-High.
+
+
+### Zona Sur
+
+```{r, include=FALSE}
+# Calcular el global moran
+map.link_a_queen1_2<-poly2nb(map_4,queen=T)
+map.linkW_a_queen_2<-nb2listw(map.link_a_queen1_2, style="W")
+```
+
+```{r, include=FALSE}
+queen_w<-queen_weights(map_4)
+```
+
+### Casos Covid
+```{r, include=FALSE}
+map_cluster <- map_4
+```
+
+```{r, include=FALSE}
+lisa_casos <-local_moran(queen_w, map_4["casosx10mil"]) 
+map_cluster$cluster_casos<-as.factor(lisa_casos$GetClusterIndicators())
+levels(map_cluster$cluster_casos)<-lisa_casos$GetLabels()
+```
+
+```{r, include=FALSE}
+library(plotly)
+```
+
+En el siguiente mapa podemos ver que los clusters principales high-high son cerca de los estados de Tabasco, Campeche y Quintana Roo. Mientras que los clusters no significantes se concentran cerca de los estados de Guerrero, Oaxaca y Veracruz. En cuanto a los clusters Low - Low estos son principalmente en Chiapas. Es importante recordar que, en general, esta región contaba con varios de los clústers Low-Low de covid a nivel nacional, lo contrario a otras regiones como el Noroeste. 
+
+```{r}
+  ggplot(data=map_cluster) +
+  geom_sf(aes(fill=cluster_casos)) 
+```
+
+### Factores Socioeconómicos
+
+**Rezago Social - Zona Sur**   
+```{r, include=FALSE}
+lisa_rezso <-local_moran(queen_w, map_4["rezago_social"]) 
+map_cluster$cluster_rezso<-as.factor(lisa_rezso$GetClusterIndicators())
+levels(map_cluster$cluster_rezso)<-lisa_rezso$GetLabels()
+```
+
+En el siguiente mapa podemos ver que los clusters principales high-high son cerca de los estados de Chiapas y Guerrero. Mientras que los clusters no significantes se concentran cerca de los estados de Veracruz, Tabasco, Campeche, Yucatán y Quintana Roo. Al comparar esto con el cluster de casos vemos que algunos municipios con Low-Low son High-High en Covid, particularmente en Tabasco, Quintana Roo y Campeche. En cuanto a Oaxaca y Chiapas, algunos municipios con Low-Low casos son un cluster con correlación alta de rezago. Esto nos indicaría que en clusters con alto rezago existieron clusters con menos casos reportados y lo mismo en el sentido contrario.
+
+```{r}
+ggplot(data=map_cluster) + 
+  geom_sf(aes(fill=cluster_rezso))
+```
+
+**Densidad Poblacional 2020 - Zona Sur**   
+```{r, include=FALSE}
+map_cluster1 <- map_4
+```
+
+```{r, include=FALSE}
+lisa_pop <-local_moran(queen_w, map_4["popden2020"]) 
+map_cluster1$cluster_pop<-as.factor(lisa_pop$GetClusterIndicators())
+levels(map_cluster1$cluster_pop)<-lisa_pop$GetLabels()
+```
+
+En el siguiente mapa podemos ver que los clusters principales low-low son cerca de los estados de Campeche, Yucatán y Quintana Roo. Mientras que los clusters no significantes se concentran cerca de los estados de Tabasco, Chiapas y Veracruz. Vemos que en general se trata de una región con baja densidad poblacional a excepción de municipios como Cancún. Así mismo, esta región contaba con clústers low-low incluso a nivel nacional.
+
+```{r}
+ggplot(data=map_cluster1) +
+  geom_sf(aes(fill=cluster_pop))
+```
+
+**Porcentaje de población que vive en pobreza - Zona Sur**   
+```{r, include=FALSE}
+map_cluster2 <- map_4
+```
+
+```{r, include=FALSE}
+lisa_ppp <-local_moran(queen_w, map_4["porcentaje_pob_pobreza"]) 
+map_cluster2$cluster_ppp<-as.factor(lisa_ppp$GetClusterIndicators())
+levels(map_cluster2$cluster_ppp)<-lisa_ppp$GetLabels()
+```
+
+En el siguiente mapa podemos ver que los clusters principales high-high son cerca de los estados de Guerrero, Oaxaca y Chiapas. Mientras que los clusters no significantes se concentran cerca de los estados de Campeche y Quintana Roo. En cuanto a los clusters Low-Low los vemos en algunas partes de Quintana Roo, Yucatán, Veracruz y Tabasco. Llaman la atención municipios en la riviera donde son High-High cerca de zonas con baja pobreza. Podemos ver que en algunos clusters con baja pobreza como los de Chiapas y Oaxaca existieron casos altos de Covid, mientras que en algunos como Tabasco vemos menores niveles de pobreza, pero altos de Covid.
+
+```{r}
+ggplot(data=map_cluster2) +
+  geom_sf(aes(fill=cluster_ppp))
+```
+
+**Porcentaje de población que carece de acceso a seguridad social - Zona Sur**   
+```{r, include=FALSE}
+map_cluster3 <- map_4
+```
+
+```{r, include=FALSE}
+lisa_ppas <-local_moran(queen_w, map_4["porcentaje_pob_acceso_ss"]) 
+map_cluster3$cluster_ppas<-as.factor(lisa_ppas$GetClusterIndicators())
+levels(map_cluster3$cluster_ppas)<-lisa_ppas$GetLabels()
+```
+
+En el siguiente mapa podemos ver que los clusters principales high-high son cerca de los estados de Guerrero y Chiapas. Mientras que los clusters no significantes se concentran cerca de los estados de Tabasco, Yucatán, Campeche y Quintana Roo. Parece ser que los estados que cuentan con clusters High de falta de seguridad social cuenta con clusters de menores casos reportados. Esto podría ser debido a que no existen suficientes instituciones para detectar y reportar casos en estos estados. Algo importante fue ver que a nivel nacional casi todos los clústers eran High-High, por lo que la zona a nivel nacional se encuentra por lo general con un menor acceso a estos servicios.
+
+```{r}
+ggplot(data=map_cluster3) +
+  geom_sf(aes(fill=cluster_ppas))
+```
+
+**Porcentaje de hogares que recibieron remesas en 2015 - Zona Sur**   
+```{r, include=FALSE}
+map_cluster4 <- map_4
+```
+
+```{r, include=FALSE}
+lisa_hogrem <-local_moran(queen_w, map_4["hogrem2015"]) 
+map_cluster4$cluster_hogrem<-as.factor(lisa_hogrem$GetClusterIndicators())
+levels(map_cluster4$cluster_hogrem)<-lisa_hogrem$GetLabels()
+```
+
+En el siguiente mapa podemos ver que los clusters principales high-high son cerca del estado de Guerrero, los clusters principales low-low son cerca de los estados de Tabasco, Chiapas y Yucatán. Mientras que los clusters no significantes se concentran cerca de los estados de Veracruz, Campeche y Quintana Roo. Parece que no existe una relación entre esto y los casos de Covid.
+
+```{r}
+ggplot(data=map_cluster4) +
+  geom_sf(aes(fill=cluster_hogrem))
+```
+
+**Hospitales privados por cada 10,000 habitantes - Zona Sur**   
+ 
+
+# Preguntas de análisis
+**1. ¿Cuáles son los principales factores socioeconómicos que propician un incremento / disminución de los casos confrmados de COVID-19?**   
+Entre los factores socioeconómicos que afecta si la cantidad de casos de Covid-19 en una localidad aumenta o disminuye, se encuentra el factor de acceso a servicios de salud, cantidad de hospitales y porcentaje de pobreza en la población. A lo largo de este reporte, analizaremos a más detalle cómo cada uno de estos factores influye en los casos de Covid-19 en la zona sur de México.   
+\
+**a) ¿Hay factores en municipios cercanos que propicien un incremento / disminución de los casos confrmados de COVID-19 en un municipio en particular?**   
+
+El primer factor es “la cantidad de hospitales X10,000 habitantes”, podemos observar que en el estado de Veracruz y Tabasco especialmente en algunos de sus municipios existe una gran diferencia entre la cantidad de hospitales privados. Así mismo podemos observar que en Chiapas, aunque la diferencia no es mucha, hay pocos municipios que tienen mucho más número de hospitales. El estado que se observa más neutral es Quintana Roo. Esto afecta directamente al aumento o disminución del reporte de los casos de Covid.
+
+Así mismo, otro factor es el de la población que “carece de acceso a seguridad social” en donde podemos observar que los estados en los cuales los municipios donde es más notoria la variación es en Guerrero, Oaxaca, Chiapas y Veracruz. Esto tiene sentido ya que son los estados más grandes de la zona sur. Así mismo, son los estados en los que más varía la densidad de población.
+
+Por último, otro factor que influye es “población en situación de pobreza” ,ya que esto afectará al acceso económico a medicamentos, oxígeno, doctores, entre otras cosas útiles para recuperarse del Covid-19. De lo cual podemos observar que en la zona sur los municipios con más porcentaje de pobreza se encuentran en los estados de Oaxaca y Puebla, y es menor en los estados de Veracruz, Tabasco y Quintana Roo. Sin embargo, en los estados donde más varían en respecto a los municipios están en Chiapas y Oaxaca.
+\
+**b) ¿Cuáles son los principales factores socioeconómicos que caracterizan los clústers de casos confirmados de COVID-19?**   
+En cuanto a la característica de los clústers podemos observar que existe algo que en un inicio es muy sorprendente. Existen ciertas regiones, principalmente municipios en Guerrero, Chiapas y Oaxaca, donde vemos correlaciones espaciales de niveles altos de rezago social, pobreza y falta de acceso a seguridad social, pero al mismo tiempo observamos que existen clústers de niveles bajos de covid ahí. También vemos que regiones con clústers de niveles altos de acceso a seguridad social (como algunas regiones de Quintana Roo y Tabasco) existen niveles altos de covid. Esto nos puede indicar que en estos lugares con niveles altos existieron más instituciones públicas o privadas de salud que se dedicaron a detectar y reportar los casos. Por el contrario, en otros sitios como Chiapas y Oaxaca hubo falta de instituciones que se dedicaran a esto. Además, vemos que por lo general estas situaciones afectaron en su mayoría a municipios cercanos, por lo que las personas tendrían que trasladarse a un municipio relativamente lejano para recibir atención.
+
+Debido a esto es posible que otra variable como el exceso en mortalidad podría ayudar a conocer si sí se trata de que en ciertas regiones los casos no se reportaban. A simple vista estos mapas nos harían creer que a menor nivel de pobreza y rezago los casos aumentan, pero sabemos que puede existir un sesgo en el reporte de los casos. También puede estar relacionado con otras variables como la densidad poblacional, aunque en este caso analizamos una región donde en su mayoría la densidad es menor a la nacional.
+
+También observamos ciertas variables como el porcentaje de hogares que reciben remesas y la densidad poblacional que no fueron lo suficientemente relevantes debido a la falta de clústers o a que los existentes no se relacionaban con los de casos de covid. Esto tiene que ver con la región en específico, ya que a nivel nacional esto cambiaría.
+\
+**2. ¿Qué tipo de factores socioeconómicos regionales pudieran contribuir al crecimiento y/o expansión de organizaciones relacionadas con la prestación de servicios de salud (por ejemplo, hospitales y/o centros privados de atención para la salud)?**   
+Como se hacía mención en puntos anteriores, uno de los factores principales que afectan tanto en el número de casos y donde podría se podrían identificar regiones a donde expandirse es la densidad poblacional. No necesariamente lugares en donde solamente hay un mayor número de poblaciónl, si no en regiones donde hay un número de casos alto y una densidad poblacional media, como por ejemplo lo es Chetumal. Muchos de estos destinos se encuentran cerca de áreas metropolitanas o son destinos turísticos, por lo que sería interesante tomar en cuenta aquellas regiones subdesarrolladas que se enncuentran cerca de ciudades grandes o capitales.
+ 
+Otro factor que podría ser de apoyo para identificar a dónde expandirse es el acceso de las personas a derechos sociales y bienes. Dentro de nuestros clusters pudimos ver cómo se relaciona este factor con el número de casos de covid, sin embargo, es importante ver más a fondo de solo los estados con mayor número de casos. Un ejemplo es Oaxaca donde existe una correlación positiva entre los casos covid y el acceso a derechos sociales, donde su número de casos puede que no sea tan alarmante como en Quintana Roo, pero que tiene un número considerable de casos y se ve afectado por otros factores que van de la mano como el porcentaje de pobreza y los hospitales por cada 10,000 habitantes.
+
+Con esto probamos que no solamente es importante tomar en cuenta a los estados con mayor número de casos para expandirse, ya que probablemente se han detectado esos casos porque sí se tiene ya acceso a servicios de salud privados, si no observar a regiones cerca de los destinos turísticos con alto número de casos o regiones muy cercanas donde igualmente se pudieran ver afectadas por el porcentaje de pobreza.
+
+# Modelos de análisis
+
+**1. Brevemente, describir cómo el análisis espacial de datos se relaciona con la herramienta de inteligencia de negocios “Location Intelligence”.**   
+
+Los datos se encuentran en todas partes y cada uno de estos tiende a tener una o se les puede asignar un ubicación es por esto que su relación con location intelligence es en base a la localización la cuales nos ayudará a encontrar patrones y maximizar los datos asociados.   
+
+Añadir el factor geográfico a un análisis nos ayuda a entender mejor cómo se comporta cada una de las variables de interés acorde a su región en un mapa, lo cual también puede llevar a la creación de otras hipótesis para la investigación. De igual manera, nos permite evitar la generalización de los datos, y comprender que no todas las variables tienen el mismo comportamiento en cualquier zona geográfica.   
+
+```{r}
+#Zona Sur
+#Lets split data into training and test sets 
+# The training set is used to build the model and the test set to evaluate its predictive accuracy.
+set.seed(123)
+partition <- createDataPartition(y = covid_2$casosx10mil, p=0.7, list=F)
+train <- covid_2[partition, ]
+test <- covid_2[-partition, ]
+```
+
+## Modelo de regresión no espacial
+2. Especificar y estimar 1 modelo de regresión no espacial.
+```{r}
+covid_2lm <- covid_2[c('rezago_social','popden2020','porcentaje_pob_acceso_ss','porcentaje_pob_pobreza','hogrem2015','hosp_numx10000','casosx10mil',"popnoafmed2015", "hogremjefmuj2015" )]
+```
+
+```{r}
+lm_model <- lm(casosx10mil ~ ., data = covid_2lm)
+summary(lm_model)
+```
+
+Las variables con mayor significancia en este modelo de regresión lineal fueron el porcentaje de la población que carece de acceso a seguro social, el porcentaje de la población en situación de pobreza y la cantidad de hospitales por cada 10 mil habitantes. Estas tres variables con mayor significancia muestran tener un comportamiento negativo con la variable dependiente de Casos por cada 10 mil habitantes, es decir, mientras mayor es el valor de estas menor es la cantidad de casos. Esto se puede justificar con la variable de densidad poblacional, la cual nos muestra que a mayor densidad poblacional, mayor la cantidad de casos, lo que significa que el hecho de si se trata de una ciudad o una zona rural puede ser significativo para este análisis. 
+
+```{r}
+test1 <- test
+lineal_prediction_test_data <- predict(lm_model,test1)
+model_lineal <- rmse(lineal_prediction_test_data, test1$casosx10mil)
+model_lineal
+```
+Podemos ver que nos dió un RMSE de 48.58
+
+## Modelos de regresión espacial
+
+**3. De acuerdo al ESDA de la Actividad se porqué si / no se justifica el análisis de regresión espacial?**
+Para esta actividad sí es justificable realizar un análisis exploratorio espacial, podemos percatarnos de que la variable que buscamos analizar que es el número de casos de Covid, su comportamiento puede ser influenciado por distintas variables, una de ellas significante es la ubicación y aspectos relacionados con esta. Sin embargo, para poder analizar este comportamiento a nivel territorial es necesario utilizar el ESDA, no  solo para ver la relación entre variables, si no la relación de una variable con la locación.   
+
+## Especificar y estimar 3 modelos diferentes de regresión espacial.
+
+```{r, include=FALSE}
+library(maptools)
+library(sf)
+library(sp)
+library(spdep)
+```
+
+```{r, include=FALSE}
+library(spdep)
+library(spData)
+library(foreign)
+library(ggplot2)
+library(spdep)
+library(spmoran)
+library(spatialreg)
+library(maptools)
+library(mapproj)
+library(sp)
+library(maps)
+library(rgeos)
+library(ggmap)
+library(mapproj)
+library(RColorBrewer)
+library(rgdal)
+library(scales)
+library(ggsn)
+```
+
+```{r, include=FALSE}
+covid_5 <- covid_2[c('rezago_social','popden2020','porcentaje_pob_acceso_ss',
+                     'porcentaje_pob_pobreza','hogrem2015','hosp_numx10000','casosx10mil','cve_ent')]
+```
+
+```{r, include=FALSE}
+lmat3 <- coordinates(map)
+names(lmat3) <- c("lon","lat")
+map.centroid3 <- coordinates(map)
+summary(map)
+```
+
+```{r, include=FALSE}
+covid_5$IDUNICO <- covid_5$cve_ent
+```
+
+```{r, include=FALSE}
+library(tigris)
+options(tigris_use_cache = TRUE)
+map_5 <-right_join(map_2,covid_5,by='IDUNICO')
+```
+
+```{r, include=FALSE}
+map_5$rezago_social <- as.integer(map_5$rezago_social)
+```
+
+### Spatial Error Model con las variables seleccionadas generales
+```{r, include=FALSE}
+# Lets split data into training and test sets 
+# The training set is used to build the model and the test set to evaluate its predictive accuracy.
+set.seed(123) # What is set.seed()? We want to make sure that we get the same results for
+```
+
+```{r, include=FALSE}
+map_5 <- filter(map_5, CVE_ENT > 0)
+```
+
+```{r}
+map1 <-map[map$CVE_ENT == 12|map$CVE_ENT == 7|map$CVE_ENT == 27|map$CVE_ENT == 20|map$CVE_ENT == 31|map$CVE_ENT == 4|map$CVE_ENT == 23|map$CVE_ENT == 13,]
+lmat4 <- coordinates(map1)
+names(lmat4) <- c("lon","lat")
+map.centroid4 <- coordinates(map1)
+```
+
+```{r}
+map.link_a_queen1<-poly2nb(map_5,queen=T)
+map.linkW_a_queen1<-nb2listw(map.link_a_queen1, style="W")
+```
+
+Realizaremos un Spatial Error Model para predecir los casos por 10K habitantes. En este caso este modelo no toma valores con lag. En cambio, toma en cuenta los residuales de la variable y de sus vecinos. Esto sirve cuando contamos con una variable explanatoria correlacionada con los vecinos que no ha sido incluida en el modelo.
+
+```{r}
+spatial_error_model <- errorsarlm(casosx10mil ~ rezago_social + popden2020 + I(porcentaje_pob_acceso_ss^2) + porcentaje_pob_pobreza + hogrem2015, data = map_5,
+                                  nb2listw(map.link_a_queen1), method="Matrix")
+summary(spatial_error_model)
+```
+
+En cuanto al Spatial Error Model para predecir los casos por 10K habitantes vemos que las variables con mayor coeficiente son el rezago social con -9 seguido por hogares con remesas con -8. Esto nos hace menor que cuanto menor sea el rezago social menor serán los casos de covid, esto mismo sucede con las remesas. Vemos que las variables que al aumentar causan un mayor número de casos son la densidad poblacional. 
+
+En cuanto al AIC, el cual usaremos para comparar con otros modelos, este es de 11,482.   
+
+```{r}
+model_spatial1 <- sqrt(mean((map_5$casosx10mil - spatial_error_model$fitted.values)^2))
+model_spatial1
+```
+En este caso vemos que el RMSE es de 37.93. Aunque este valor pueda parecer muy alto, lo usaremos para comparar con otros modelos.
+
+### Spatial Error Model con menos variables
+```{r}
+set.seed(123)
+```
+
+```{r}
+map_6 <- filter(map_5, CVE_ENT > 0)
+```
+
+```{r}
+map1 <-map[map$CVE_ENT == 12|map$CVE_ENT == 7|map$CVE_ENT == 27|map$CVE_ENT == 20|map$CVE_ENT == 31|map$CVE_ENT == 4|map$CVE_ENT == 23|map$CVE_ENT == 13,]
+lmat <- coordinates(map1)
+names(lmat) <- c("lon","lat")
+map.centroid <- coordinates(map1)
+```
+
+```{r}
+library(spdep)
+library(spatialreg)
+```
+
+```{r}
+map.link_a_queen1_1<-poly2nb(map_6,queen=T)
+map.linkW_a_queen1_1<-nb2listw(map.link_a_queen1_1, style="W")
+```
+
+En este caspo se realizó el mismo procedimiento Spatial Error Model con todas las variables, pero se decidió seleccionar una cantidad menor de variable para poder observar si sale un mejor resultado de RMSE.
+Como equipo decidimos utilizar las siguientes variables:
+
+casosx10mil
+rezago_social
+popden2020                   
+porcentaje_pob_pobreza
+
+```{r}
+spatial_error_model_1 <- errorsarlm(casosx10mil ~  rezago_social + popden2020  + porcentaje_pob_acceso_ss , data = map_6,
+                                  nb2listw(map.link_a_queen1_1), method="Matrix")
+summary(spatial_error_model_1)
+```
+Donde podemos observar que las variables que más afectan a los casos de Covid es el rezago social y porcentaje de personas que carece de acceso a seguro social ya que se encuentran en números negativos. 
+Por otro lado podemos observar que el AIC es de 11,626.
+
+```{r}
+model_spatial2 <- sqrt(mean((map_6$casosx10mil - spatial_error_model_1$fitted.values)^2))
+model_spatial2
+```
+
+Donde podemos observar que tuvimos un RMSE de 40.41
+
+### Spatial Autoregressive Model
+Ahora se realizará un **Spatial Autoregressive model**  para poder observar la relación de la variable predictora que son los casos de covid por cada 10,000 habitantes, con respecto a las variables escogidas considerando el impacto espacial, con esto podremos estimar los parámetros espaciales del modelo para comprender mejor el comportamiento de las variables sobre el número de casos.
+```{r}
+spatial_lag_model <- lagsarlm(casosx10mil ~ rezago_social+ popden2020 + porcentaje_pob_acceso_ss +
+                     porcentaje_pob_pobreza + hogrem2015,
+                              data= map_5, nb2listw(map.link_a_queen1), method="Matrix")
+summary(spatial_lag_model)
+```
+
+Podemos observar dentro de los resultados del modelo, que las variables que afectan en el aumento de casos de covid son la densidd poblacional, la variables más significante del modelo son el porcentaje de pobreza, donde podemos ver que si disminuye el porcentaje de pobreza disminuyen el número de casos por cada 10,000 habitantes.   
+Hablando del desempeño del modelo tenemos un AIC de 11558.
+
+```{r}
+# RMSE
+model_spatial_auto <- sqrt(mean((map_5$casosx10mil - spatial_lag_model$fitted.values)^2))
+model_spatial_auto
+```
+El RMSE del modelo fue de 40.006, lo que fue muy similar a nuestro resultado del modelo pasado
+
+
+## Modelo de regresión con Machine Learning
+5. Especificar y estimar 1 modelo de regresión mediante el uso de machine learning (por ejemplo, support vector machine, decision trees, random forest, XGBoost regression, etc.)
+```{r, include = FALSE}
+library(e1071)
+library(Metrics)
+library(rpart.plot)
+library(randomForest)
+```
+
+Se realizará un modelo de Random Forest para predecir la variable de casos de covid por cada 10,000 habitantes y ver la importancia de las demás variables para dicha predicción. Podemos ver que el accuracy del modelo para los datos de entrenamiento es de 51%. 
+
+```{r}
+random_forest<-randomForest(casosx10mil ~ rezago_social + popden2020 + porcentaje_pob_acceso_ss + porcentaje_pob_pobreza + hogrem2015 + hosp_numx10000, data=train, proximity=TRUE)
+print(random_forest)
+```
+
+Al momento de aplicar el modelo a los datos de testing, podemos ver que nos da un RMSE de 45.15%
+```{r}
+rf_prediction_test_data <- predict(random_forest,test)
+model_random_forest <- rmse(rf_prediction_test_data, test$casosx10mil)
+model_random_forest
+```
+
+Al ver la importancia de las demás variables para predecir los casos de covid, podemos ver en orden de importancia las variables:   
+
+- 1. rezago_social   
+
+- 2. porcentaje de pobreza   
+
+- 3. Porcentaje de población que carece a servicios de seguridad social   
+
+- 4. Densidad de población   
+
+- 5. Cantidad de hospitales por cada 10,000 personas   
+
+- 6. porcentaje de hogares que recibieron remesas durante el año 2015   
+
+```{r}
+varImpPlot(random_forest, n.var = 13, main = "Top 10 - Variable") # It displays a variable importance plot from the random forest model. 
+```
+
+Aquí podemos ver la importancia de las variables de igual manera, donde las variables más importantes son las de rezago social y el porcentaje de pobreza.
+
+```{r}
+importance(random_forest)                                         # It is worth mentioning that IncNodePurity by how much the model error increases by dropping each of the specified explanatory variables. 
+```
+
+
+## Comparación de modelos
+**6. Mediante el uso de Root Mean Square Error – RMSE seleccionar 1-2 modelos de regresión anteriores y describir los principales resultados.** 
+```{r, include=FALSE}
+library(data.table)
+```
+
+```{r}
+data.table(Lineal = model_lineal,
+           Spatial1 = model_spatial1,
+           Spatial2 = model_spatial2,
+           Spatial3 = model_spatial_auto, 
+           RandomForest = model_random_forest)
+```
+Al comparar el RMSE de los 5 modelos, podemos ver que el mejor modelo es el Spatial Error Model con las variables seleccionadas generales (casosx10mil, rezago_social, popden2020, porcentaje_pob_acceso_ss, porcentaje_pob_pobreza y hogrem2015) ya que es el modelo con un RMSE más bajo. Los principales resultados de ambos nos dicen que las 3 variables más importantes para predecir los casos de covid son el rezago social, el porcentaje de población y la cantidad de hospitales privados.   
+
+**7. Con base en la situación problema, describir los principales 5-7 hallazgos del análisis de regresión.**
+- Las variables que predicen de mejor manera los casos de covid son las de rezago social y el porcentaje de personas en situación de pobreza   
+
+- La densidad de población está fuertemente vinculada con los casos de covid y, a su vez, con el porcentaje de pobreza y el rezago social. Esto nos indica la fuerte relación entre ser una ciudad grande y la situación socioeconómica de su población y los casos de covid.   
+
+- El estado de Oaxaca, especialmente entre sus municipios, tiene una gran diferencia entre la cantidad de hospitales privados, así mismo podemos ver que en Yucatán, aunque la diferencia no es mucha, hay pocos municipios que tienen mucho más número de hospitales. Finalmente, el estado que se observa más neutral entre sí es Quintana Roo.   
+
+- La variable porcentaje de hogares que recibieron remesas dependiendo del estado puede llegar a ser significativa o no, tiende a ser más significativa a los estados con un índice de pobreza más alto.   
+
+- Así mismo, el porcentaje de personas que carecen de servicios de salud pública es significativo en todos los modelos.   
+
+- Se encontró que el porcentaje de la población con acceso a servicios de salud es altamente significativo al hablar de los casos de Covid en diferentes zonas geográficas. Con esto podemos asumir que en zonas en las que no se tiene un acceso a hospitales o consultorios médicos privados, la población tiende a reportar menos casos de Covid, esto se puede deber a que se trata de localidades con baja densidad poblacional o a que al haber menos instituciones de salud existen menos casos detectados y reportados.   
+
+**8. A partir de los modelos de regresión seleccionados y los hallazgos identificados describir 2-3 sugerencias relacionadas con la toma de decisiones para el crecimiento / expansión territorial de organizaciones orientadas a las prestación de servicios de salud.**   
+
+- **Primera recomendación:** Como pudimos observar en los hallazgos y el análisis anterior, dos variables muy significativas que tienden aumentar el número de casos son la densidad poblacional y el índice de pobreza, a pesar de que ciertas ciudades tienen más acceso a servicios privados médicos  que localidades rurales, podemos ver que el índice de pobreza puede ser un impedimento para el tratamiento de Covid, por lo que el formar una campaña o plan de voluntariado que permita que profesionales de salud de estas zonas con gran población puedan ofrecer servicios a un precio más accesible, se podría hacer un censo sobre lo que podría costar una consulta promedio para poder ofrecer algo que realmente sea accesible para ellos. Así mismo, las personas del voluntariado podrían adquirir práctica en estos servicios para poder tener una ganancia recíproca.   
+
+- **Segunda Recomendación:**
+Tomando en cuenta aquellas provincias rurales que no tienen acceso a estos servicios médicos privados pero que se encuentran cerca de una zona metropolitana, un transporte más accesible a estas zonas podría ser una oportunidad para que más habitantes puedan ser atendidos sin tener que movilizar a los profesionales de la salud. Un ejemplo podría ser un camión que salga al menos una vez al día por las mañanas y pueda hacer una ruta en la cual se concentre la mayor parte de entidades médicas dentro de esa ciudad.
+
