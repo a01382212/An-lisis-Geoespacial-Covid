@@ -1,0 +1,955 @@
+---
+title: "Actividad1_A01382212"
+author: "Rodrigo Gutiérrez Del Bosque"
+date: "2023-04-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(readr)
+library(tidyverse)
+```
+
+# Bases de Datos
+
+## Base de Datos Denue
+```{r, warning=FALSE}
+hospitales <-read_csv("C:/Users/DiDi/Downloads/spda_covid19/denue_hospitales.csv")
+```
+
+```{r}
+hospitales_1 <- hospitales %>% select(cve_ent, entidad, cve_mun, municipio, codigo_act, nombre_act, per_ocu, ageb, latitud, longitud)
+```
+
+
+```{r}
+### Filtrar hospitales y centros de salud física del sector privado
+hospitales_2 <- hospitales_1 %>% filter (codigo_act %in% c(621111, 621113, 621115, 621398, 621491, 621610, 621991, 622111, 622311, 623111, 624231))
+```
+
+## Base de Datos Covid
+```{r, warning=FALSE}
+covid <- read_csv("C:/Users/DiDi/Downloads/spda_covid19/covid19_confirmados.csv")
+```
+
+# Limpieza de datos y Estructuración de datasets
+**Ver si hay NA's**
+```{r}
+# No hay NA's en los datos
+colSums(is.na(hospitales_2))
+```
+
+
+
+##  Creación de campo llave para unir bases de datos
+```{r}
+hospitales_2$clave <- NA
+
+# 1 y 1
+hospitales_2$clave <-  ifelse(hospitales_2$cve_ent < 10 & hospitales_2$cve_mun < 10, paste(hospitales_2$cve_ent, hospitales_2$cve_mun, sep = "00"), hospitales_2$clave)
+         
+# 1 y 2 
+hospitales_2$clave <- ifelse(hospitales_2$cve_ent < 10 & hospitales_2$cve_mun >= 10 & hospitales_2$cve_mun < 100, paste(hospitales_2$cve_ent, hospitales_2$cve_mun, sep = "0"), hospitales_2$clave)
+
+# 1 y 3
+hospitales_2$clave <- ifelse(hospitales_2$cve_ent < 10 &  hospitales_2$cve_mun >= 100, paste(hospitales_2$cve_ent, hospitales_2$cve_mun, sep = ""), hospitales_2$clave)
+
+# 2 y 1          
+hospitales_2$clave <- ifelse(hospitales_2$cve_ent >= 10 & hospitales_2$cve_mun < 10, paste(hospitales_2$cve_ent, hospitales_2$cve_mun, sep = "00"), hospitales_2$clave) 
+
+# 2 y 2
+hospitales_2$clave <- ifelse(hospitales_2$cve_ent >= 10 & hospitales_2$cve_mun < 100 & hospitales_2$cve_mun >= 10, paste(hospitales_2$cve_ent, hospitales_2$cve_mun, sep = "0"), hospitales_2$clave)
+
+# 2 y 3
+hospitales_2$clave <- ifelse(hospitales_2$cve_ent >= 10 & hospitales_2$cve_mun >= 100, paste(hospitales_2$cve_ent, hospitales_2$cve_mun, sep = ""), hospitales_2$clave)
+
+```
+
+## Conversión de variables
+```{r, warning=FALSE}
+covid$poblacion_2022 <- as.numeric(covid$poblacion_2022)
+covid$hogrem2015 <- as.numeric(covid$hogrem2015)
+covid$hogremjefmuj2015 <- as.numeric(covid$hogremjefmuj2015)
+covid$popnoafmed2015 <- as.numeric(covid$popnoafmed2015)
+covid$gini2015 <- as.numeric(covid$gini2015)
+covid$popden2020 <- as.numeric(covid$popden2020)
+```
+Reemplazamos valores nulos con la mediana
+
+```{r}
+covid <- covid %>% mutate(across(where(is.numeric), ~replace_na(., median(., na.rm=TRUE))))
+```
+
+# Join de las bases de datos con la cantidad de hospitales por municipio
+```{r}
+hospitales_2$municipio <- as.factor(hospitales_2$municipio)
+count_hospitales <- hospitales_2[ , c(11)]  %>% group_by(clave) %>% count(clave) %>% rename("hosp_num" = "n")
+
+covid_2 <- merge(covid, count_hospitales, by.x = "cve_ent", by.y = "clave", all.x=TRUE)
+```
+
+```{r, warning=FALSE}
+municipio_estado <-read_csv("rangos_pobreza_loc_urbana_2020.csv")
+municipio_estado <- municipio_estado %>% select(clave_municipio,entidad)
+```
+Contamos con una base de datos que nos ayudará a identificar el municipio y el estado con sus claves.
+
+```{r}
+covid_2 <- merge(covid_2, municipio_estado, by.x = "cve_ent", by.y = "clave_municipio", all.x=TRUE)
+```
+
+```{r}
+covid_2 <- distinct(covid_2)
+```
+
+
+```{r}
+covid_2$hosp_num[is.na(covid_2$hosp_num)] <- 0
+```
+
+Asignamos 0 a los municipios sin hospitales.
+
+```{r}
+sapply(covid_2, function(x) sum(is.na(x)))
+```
+
+
+```{r}
+covid_2$hosp_numx10000 <- covid_2$hosp_num * 10000 / covid_2$poblacion_2022
+```
+
+## Agrupar casos por año 2020 Y 2021
+```{r}
+#Run once!!
+covid_2 <- covid_2[ , -33]
+columnas2020 <- covid_2[ , c(19:29)]
+columnas2021 <- covid_2[ , c(30:41)]
+
+
+
+covid_2$total2020 <- rowSums(columnas2020)
+covid_2$total2021 <- rowSums(columnas2021)
+## Promedio de ambas columnas 2020 y 2021
+covid_2$avg_casos <- rowMeans(covid_2[, c(45,46)], na.rm=TRUE)
+
+## Casos de Covid por cada 10,000 habitantes
+covid_2$casosx10mil <- (covid_2$avg_casos/covid_2$poblacion_2022) * 10000
+```
+### dividir los porcentajes / 100
+```{r}
+covid_2$hogrem2015 <- covid_2$hogrem2015 / 100
+covid_2$hogremjefmuj2015 <- covid_2$hogremjefmuj2015 / 100
+covid_2$popnoafmed2015 <- covid_2$popnoafmed2015 / 100
+covid_2$inclusion_fin_2019 <- covid_2$inclusion_fin_2019 / 100
+covid_2$porcentaje_pob_pobreza <- covid_2$porcentaje_pob_pobreza / 100
+covid_2$porcentaje_pob_pobreza_ext <- covid_2$porcentaje_pob_pobreza_ext / 100
+covid_2$porcentaje_pob_servicios_salud <- covid_2$porcentaje_pob_servicios_salud / 100
+covid_2$porcentaje_pob_acceso_ss <- covid_2$porcentaje_pob_acceso_ss / 100
+covid_2$'pob_6-14_no_edu' <- covid_2$'pob_6-14_no_edu' / 100
+```
+
+
+
+# Significancia de las variables a través de XGBoost y Random Forest
+
+Se realizarán dos modelos para determinar las variables con mayor significancia.
+
+```{r}
+covid_boost <- covid_2[c('poblacion_2022','hogrem2015','hogremjefmuj2015',
+                         'popnoafmed2015','gini2015','popden2020','crimen_2019',
+                         'inclusion_fin_2019','porcentaje_pob_pobreza',
+                         'porcentaje_pob_pobreza_ext','porcentaje_pob_servicios_salud',
+                         'porcentaje_pob_acceso_ss','pob_6-14_no_edu','rezago_social',
+                         'grado_rs','casosx10mil','hosp_numx10000')]
+```
+**XGboost**
+
+```{r,warning=FALSE}
+library(caret)
+library(xgboost)
+
+regressor=train(casosx10mil ~ ., data= covid_boost, method = "xgbTree",trControl = trainControl("cv", number = 10))
+
+varImp(regressor)
+```
+**Random Forest**
+
+```{r}
+library(janitor)
+covid_tree <- clean_names(covid_boost)
+regressor_2 <- train(casosx10mil ~ ., data= covid_tree, method = 'rpart2',preProcess = c("center", "scale"),na.action=na.pass)
+
+varImp(regressor_2)
+```
+
+## Decision de variables
+
+Después de ver aplicado el método de xgboost y random forest, llegamos que las variables significantes para el análisis espacial sería:
+
+- rezago_social
+- popden2020
+- porcentaje_pob_acceso_ss
+- porcentaje_pob_pobreza
+- hogrem2015
+- hosp_numx10000
+
+```{r}
+covid_2 <- covid_2[c('cve_ent','mpio','entidad','rezago_social','popden2020','porcentaje_pob_acceso_ss','porcentaje_pob_pobreza','hogrem2015','hosp_numx10000','casosx10mil','cve_ent')]
+```
+
+
+## Filtrar por zona Centro
+
+Filtraremos para solo tener los municipios de la zona centro.
+
+```{r, results='hide'}
+zona_centro <- covid_2  %>% filter (entidad %in% c("Ciudad de Mexico", "Mexico", "Guanajuato", "Hidalgo", "Morelos","Puebla", "Queretaro", "Tlaxcala"))
+```
+
+# Gráficas (Estadísticos Descriptivos)
+
+## Graficas por estado
+
+### Número de hospitales por entidad 
+
+```{r}
+ggplot(data=zona_centro, aes(x=entidad, y=hosp_numx10000)) + 
+    geom_bar(stat="identity")
+```
+
+Observamos que el estado con mayor número de hospitales privados por 10,000 habitantes son Puebla, seguido por el Estado de México. El menor es Querétaro seguido por la Ciudad de México.
+
+### Número de casos por cada 10mil habitantes por entidad
+
+```{r}
+ggplot(data=zona_centro, aes(x=entidad, y=casosx10mil, fill=casosx10mil)) + 
+    geom_bar(stat="identity")
+```
+
+En cuanto a los casos por habitantes vemos que el Estado de México cuenta con el mayor número de casos, algo que se repite en cuanto a la gráfica anterior de hospitales. Después contamos con la CDMX y Guanajuato. Vemos que en la CDMX en general todas las alcaldías cuentan con altos casos de covid, mientras que en el resto de estados existen outliers de municipios con altos casos. El estado con menor número es Querétaro, el estado que también cuenta con menos hospitales.
+
+```{r}
+ggplot(data=zona_centro, aes(x=entidad, y=popden2020, fill=popden2020)) + 
+    geom_bar(stat="identity")
+```
+En esta gráfica vemos algo muy similar a la anterior, donde destacan el Edo. de México y la CDMX. Así mismo, el estado con menor densidad es Querétaro, quien también es el que cuenta con menos casos de covid.
+
+```{r}
+ggplot(data=zona_centro, aes(x=entidad, y=porcentaje_pob_acceso_ss, fill=porcentaje_pob_acceso_ss)) + 
+    geom_bar(stat="identity")
+```
+
+En este caso vemos que el estado que cuenta con más población sin acceso a Seguridad Social es Puebla, donde en general existen muchos municipios con esta problemática. Llama la atención la CDMX donde en general su población cuenta con un alto acceso, sin embargo, cuenta con altos casos de covid. Esto puede ser debido a que cuenta con muchas instituciones que puedan reportar los casos.
+
+```{r}
+ggplot(data=zona_centro, aes(x=entidad, y=porcentaje_pob_pobreza, fill=porcentaje_pob_pobreza)) + 
+    geom_bar(stat="identity")
+```
+En este caso la gráfica es muy similar a la anterior, podemos notar entonces que ente mayor sea la pobrza parece ser que también es menor el acceso a servicios de seguridad social.
+
+## Graficas por municipio 
+
+```{r}
+zona_centro_cdmx <- zona_centro  %>% filter (entidad %in% c("Ciudad de Mexico"))
+zona_centro_cdmx
+```
+
+
+Numero de casos por la cantidad de hospitales
+
+```{r}
+ggplot(data=zona_centro_cdmx, aes(x=mpio, y=hosp_numx10000, fill=casosx10mil)) + 
+    geom_bar(stat="identity") +
+  theme(axis.text.x = element_text(angle = 30, hjust = 0.5, vjust = 0.5))
+
+```
+
+Observamos que en la CDMX Cuajimalpa de Morelos cuenta con la mayor cantidad de hopitales privados seguido por La Magdalena Contreras. En cuanto a casos, Alvaro Obregón es donde se cuenta con más y donde menos es Azcapotzalco.
+
+```{r}
+zona_centro_mexico <- zona_centro  %>% filter (entidad %in% c("Mexico"))
+```
+
+```{r}
+ggplot(data=zona_centro_mexico, aes(x=mpio, y=hosp_numx10000, fill=casosx10mil)) + 
+    geom_bar(stat="identity") +
+  theme(axis.text.x = element_text(angle = 30, hjust = 0.5, vjust = 0.5))
+```
+
+Podemos observar que existe mucha variedad en la cantidad de municipios con una densidad de hospitales privados muchos mayores, lo cual podría estar relacionado con la situación socioeconómica.
+
+```{r}
+zona_centro_morelos <- zona_centro  %>% filter (entidad %in% c("Morelos"))
+```
+
+```{r}
+ggplot(data=zona_centro_morelos, aes(x=mpio, y=hosp_numx10000, fill=casosx10mil)) + 
+    geom_bar(stat="identity") +
+  theme(axis.text.x = element_text(angle = 30, hjust = 0.5, vjust = 0.5))
+```
+
+En este caso Coatlan del Rio , Ayala y Zaculpan son los municipios con más hospitales, de estos destaca que Coatlan es uno de los municipios con mayor densidad de casos de covid junto a Zacatepec.
+
+```{r}
+zona_centro_guanajuato <- zona_centro  %>% filter (entidad %in% c("Guanajuato"))
+```
+
+```{r}
+ggplot(data=zona_centro_guanajuato, aes(x=mpio, y=hosp_numx10000, fill=casosx10mil)) + 
+    geom_bar(stat="identity") +
+  theme(axis.text.x = element_text(angle = 30, hjust = 0.5, vjust = 0.5))
+```
+
+Podemos observar que existe mucha variedad en la cantidad de municipios con una densidad de hospitales privados muchos mayores, lo cual podría estar relacionado con la situación socioeconómica.
+
+```{r}
+zona_centro_hidalgo <- zona_centro  %>% filter (entidad %in% c("Hidalgo"))
+```
+
+```{r}
+ggplot(data=zona_centro_hidalgo, aes(x=mpio, y=hosp_numx10000, fill=casosx10mil)) + 
+    geom_bar(stat="identity") +
+  theme(axis.text.x = element_text(angle = 30, hjust = 0.5, vjust = 0.5))
+```
+Podemos observar que existe mucha variedad en la cantidad de municipios con una densidad de hospitales privados muchos mayores, lo cual podría estar relacionado con la situación socioeconómica.
+
+
+# Graficas (Estadisticos Descriptivos)
+
+
+```{r}
+boxplot(covid_2$porcentaje_pob_pobreza)
+```
+
+Observamos que la mediana se encuentra al rededor del 60%, pero vemos que el tercer cuartil se encuentra en el 80% y el primero en el 50%, por lo que existe mucha pobreza.
+
+```{r}
+boxplot(covid_2$rezago_social)
+```
+
+En este caso la media es al rededor de 0, el cual es la media de la escala, pero existen outliers donde el rezago social es hasta 6, lo cual es muy alto.
+
+```{r}
+boxplot(covid_2$porcentaje_pob_acceso_ss)
+```
+Observamos que la mediana se encuentra al rededor del 70%, pero vemos que el tercer cuartil se encuentra en el 80% y el primero en el 65%. Existen outliers entre el 20 y 40%, lo que significa que es un acceso muy pequeño a la seguridad social.
+
+```{r}
+boxplot(covid_2$hogrem2015)
+```
+
+Observamos que la mediana se encuentra al rededor del 0.06%, pero vemos que el tercer cuartil se encuentra en el 12% y el primero en el 0.02%. Existen outliers entre el 25 y 50%, lo que significa que en general la mayoría de los municipios tienen menos del 10% con hogares con remesas, pero hay algunos con una proporción muy alta.
+
+
+# MAPAS
+
+```{r}
+library(maptools)
+library(sf)
+library(sp)
+```
+
+
+```{r}
+map <- readShapePoly("C:/Users/DiDi/Downloads/spda_covid19/shp_mx_mpios/mx_mpios.shp",IDvar="IDUNICO",proj4string=CRS("+proj=longlat"))
+
+```
+
+```{r}
+library(sf)
+map_2 <- read_sf("C:/Users/DiDi/Downloads/spda_covid19/shp_mx_mpios/mx_mpios.shp")
+```
+
+```{r}
+covid_3 <- zona_centro[c('rezago_social','popden2020','porcentaje_pob_acceso_ss',
+                     'porcentaje_pob_pobreza','hogrem2015','hosp_numx10000','casosx10mil','cve_ent')]
+```
+
+```{r}
+lmat <- coordinates(map)
+names(lmat) <- c("lon","lat")
+map.centroid <- coordinates(map)
+summary(map)
+```
+
+```{r}
+plot(map, col = "grey", border="blue", axes=TRUE,las=1) +
+  title(main= "Mexico's Municipalities")
+```
+
+
+```{r}
+covid_3$IDUNICO <- covid_3$cve_ent
+```
+
+```{r}
+library(tigris)
+options(tigris_use_cache = TRUE)
+map_3 <-right_join(map_2,covid_3,by='IDUNICO')
+```
+
+```{r}
+covid_2$IDUNICO <- covid_2$cve_ent
+map_4 <-right_join(map_2,covid_2,by='IDUNICO')
+```
+
+```{r}
+names(map_3)
+```
+```{r}
+map_3$rezago_social <- as.integer(map_3$rezago_social)
+map_4$rezago_social <- as.integer(map_4$rezago_social)
+map_4 <- map_4[!is.na(map_4$CODELAG),]
+```
+
+**Casos Covid por 10K Habitantes**
+
+```{r}
+library(tmap)
+tm_shape(map_4) +
+  tm_polygons("casosx10mil", 
+              style="quantile", 
+              palette = c("lightyellow", "darkred"),
+              title="\nCasos \npor 10K habitantes")
+```
+Podemos ver que en México regiones como el Noroeste, el Noreste, la CDMX Y Guanajuato contaron con altos niveles de Covid. Por el contrario, algunas regiones del centro y del sur como Chiapas y Puebla contaron con bajos casos. Ya centrados en nuestra región vemos que la CDMX es una de las zona con mayor tasa de casos.
+
+```{r}
+tm_shape(map_3) +
+  tm_polygons("casosx10mil", 
+              style="quantile", 
+              palette = c("lightyellow", "darkred"),
+              title="\nCasos \npor 10K habitantes")
+```
+
+Observamos que en los municipios del Noreste y del centro de la región es donde existen más casos por 10K habitantes. Al este es donde existen menos, mientras que en el centro hay media de cantidad. Observamos que en Guanajuato existen niveles muy altos de Covid, algo que también se ve en el Edo. de México y la CDMX. En cuanto a Puebla es donde vemos menos casos.
+
+**Densidad Poblacional**
+
+```{r}
+tm_shape(map_4) +
+  tm_polygons("popden2020", 
+              style="quantile", 
+              title="\nDensidad Poblacional")
+```
+
+En cuanto a la densidad poblacional, vemos que a nivel nacional el centro y el sur es donde vemos una mayor densidad. En cuanto a nuestra región, podemos destacar que el centro es una de las zonas con mayor densidad en todo México.
+
+```{r}
+tm_shape(map_3) +
+  tm_polygons("popden2020", 
+              style="quantile", 
+              title="\nDensidad Poblacional")
+```
+
+En cuanto a la densidad poblacional podemos observar que en el centro también existe una densidad muy alta, al igual que en algunos municipios del noreste. El sureste es donde existe una menor cantidad. Esto es algo similar al mapa anterior. Por lo tanto por ahora podríamos relacionar la densidad de la CDMX, Guanajuato y el Edo. de México con los altos niveles de covid.
+
+**Número de hospitales**
+
+```{r}
+tm_shape(map_4) +
+  tm_polygons("hosp_numx10000", 
+              style="quantile", 
+              palette = c("lightyellow", "yellow", "darkgreen"),
+              title="\nHospitales por \n10K Habitantes")
+```
+En cuanto al número de hospitales vemos que este varía mucho a nivel región debido a que las capitales y ciudades grandes cuentan con mayor número de instituciones privadas. Sin embargo, también podemos ver que en el centro existen partes como la CDMX y Guanajuato donde en general existe un mayor número.
+
+```{r}
+tm_shape(map_3) +
+  tm_polygons("hosp_numx10000", 
+              style="quantile", 
+              palette = c("lightyellow", "yellow", "darkgreen"),
+              title="\nHospitales por \n10K Habitantes")
+```
+En este caso observamos que la cantidad de lugares donde existen más hospitales privados es en el noreste y el centro, además de unos lugares del sureste. Esto se relaciona mucho con la densidad poblacional, indicándonos que son ciudades grandes donde hay más hospitales y casos. Esto sucede sobre todo en Guanajuato, donde vemos muchos hospitales privados, pero también muchos casos. La situación de los casos en CDMX y Guanajuato podrían relacionarse a que existen muchas instituciones que detecten y reporten casos.
+
+**Rezago Social**
+
+
+```{r}
+tm_shape(map_3) +
+  tm_polygons("rezago_social", 
+              style="quantile",
+              title="\nRezago Social")
+```
+
+En cuanto al rezago, vemos que también son los municipios del noreste y centro donde existe menor rezago. Podemos ver que en las ciudades donde existe una mayor densidad poblacional es donde hay menor rezago. Así mismo, CDMX y Guanajuato es donde vemos menor rezago social, pero al mismo tiempo es donde observamos un mayor número de casos.
+
+**Porcentaje sin acceso a Seguridad Social**
+
+```{r}
+tm_shape(map_4) +
+  tm_polygons("porcentaje_pob_acceso_ss", 
+              style="quantile",
+              palette = c("darkgreen","yellow", "red"),
+              title="\nPorcentaje de la \nPoblación sin Acceso \na Seguridad Social")
+```
+En este mapa podemos observar que n el norte es donde vemos que existe un mayo acceso, mientras que en el centro y el sur del país es donde existe menos. Existen excepciones como Guanajuato y CDMX, las cuales son regiones con alto acceso a estos servicios.
+
+```{r}
+tm_shape(map_3) +
+  tm_polygons("porcentaje_pob_acceso_ss", 
+              style="quantile",
+              palette = c("darkgreen","yellow", "red"),
+              title="\nPorcentaje de la \nPoblación sin Acceso \na Seguridad Social")
+```
+
+En cuanto a la población con acceso a Seguridad Social, es muy similar donde los municipios con mayor densidad es donde existe mayor acceso y menor rezago social, así como más casos de covid. Esto sucede en estados como Guanajuato y CDMX. Puebla cuenta con menos casos, pero también menor acceso a seguridad social. Debido a esto es que podemos empezar a pensar en una hipótesis de que sin instituciones de salud es más difícil reportar casos, lo que hace aparentar que en estas zonas existen menos casos.
+
+**Hogares que reciben remesas**
+
+```{r}
+tm_shape(map_4) +
+  tm_polygons("hogrem2015", 
+              style="quantile",
+              palette = c("lightyellow","darkgreen"),
+              title="\nPorcentaje de Hogares \nque Recibieron Remesas")
+```
+
+En este caso podemos observar que a nivel nacional muchos municipios del centro y el noroeste reciben alto porcentaje de las remesas. Podemos ver que en el centro esto sucede principalmente en los estados situados en el centro oeste, como Jalisco, Colima y Guanajuato. Estados como Chiapas y Campeche son de los que reciben menos.
+
+```{r}
+tm_shape(map_3) +
+  tm_polygons("hogrem2015", 
+              style="quantile",
+              palette = c("lightyellow","darkgreen"),
+              title="\nPorcentaje de Hogares \nque Recibieron Remesas")
+```
+En cuanto a los hogares con remesas, llama la atención que el centro recibe un muy pequeño porcentaje de remesas. Parece ser que esto varía mucho de estado a estado y podría relacionarse con variables culturales que no hemos estudiado.
+
+**Porcentaje pobreza**
+
+```{r}
+tm_shape(map_3) + 
+  tm_polygons("porcentaje_pob_pobreza", 
+              style="quantile",
+              title="\nPorcentaje de la Pob. \nen Situación de Pobreza")
+```
+En cuanto a la pobreza, vemos que al este y sureste existen los municipios con mayor porcentaje, de nuevo, parece que variables que varían de estado a estado afectan mucho este indicador. Vemos que el noreste e donde existe menor porcentaje. De nuevo, vemos que en Puebla existe mucha pobreza, pero pocos casos de covid y que lo contrario sucede en estados como Guanajuato y la CDMX. En otros como el Estado de México varía mucho la situación socioeconómica.
+
+
+
+# Matrices de Conectividad
+```{r}
+library(spdep)
+library(spData)
+library(foreign)
+library(ggplot2)
+library(spdep)
+library(spmoran)
+library(spatialreg)
+library(maptools)
+library(mapproj)
+library(sp)
+library(maps)
+library(rgeos)
+library(ggmap)
+library(mapproj)
+library(RColorBrewer)
+library(rgdal)
+library(scales)
+library(ggsn)
+```
+## Filtrar zona en el mapa
+
+```{r}
+map1 <-map[map$CVE_ENT == 9|map$CVE_ENT == 15|map$CVE_ENT == 17|map$CVE_ENT == 22|map$CVE_ENT == 11|map$CVE_ENT == 29|map$CVE_ENT == 21|map$CVE_ENT == 13,]
+lmat <- coordinates(map1)
+names(lmat) <- c("lon","lat")
+map.centroid <- coordinates(map1)
+```
+
+## Visualización del SWM
+```{r}
+map.link_a_queen<-poly2nb(map1,queen=T)
+map.linkW_a_queen<-nb2listw(map.link_a_queen, style="W")
+plot(map1,border="blue",axes=TRUE,las=1)
+plot(map1,col="grey",border=grey(0.11),axes=T,add=T) 
+plot(map.linkW_a_queen,coords=map.centroid,pch=19,cex=0.1,col="red",add=T)
+title("SWM -CONNECTIVITY MATRIX Zona Centro") 
+box()
+```
+
+## Visualización del SWM
+```{r}
+map.link_a_queen<-poly2nb(map1,queen=T)
+map.linkW_a_queen<-nb2listw(map.link_a_queen, style="W")
+plot(map1,border="blue",axes=TRUE,las=1)
+plot(map1,col="grey",border=grey(0.11),axes=T,add=T) 
+plot(map.linkW_a_queen,coords=map.centroid,pch=19,cex=0.1,col="red",add=T)
+title("SWM -CONNECTIVITY MATRIX Zona Centro") 
+box()
+```
+
+#Correlación espacial global
+
+```{r}
+map.link_a_queen1<-poly2nb(map_3,queen=T)
+map.linkW_a_queen1<-nb2listw(map.link_a_queen1, style="W")
+```
+
+```{r}
+# Calcular el global moran
+globalMoran <- moran.mc(map_3$casosx10mil, map.linkW_a_queen1, nsim = 9999)
+globalMoran #importante el statistic y el p-value
+```
+
+Observamos que existe un Global Moral de 0.63, lo que nos indica que sí existe una correlación espacial en cuanto a los casos por 10 mil habitantes en nuestra región y que es media-alta. Esto es algo que ya habíamos empezado a ver en los mapas debido a la situación de estado a estado. Esto fue realizado usando el método de Queen y podría indicarnos que debido a variables como las decisiones de los gobiernos locales en cuanto a SS y reportes de casos es que existe esta autocorrelación la cual es media-alta.
+
+```{r}
+map.link_a_queen1<-poly2nb(map_3,queen=T)
+map.linkW_a_queen1<-nb2listw(map.link_a_queen1, style="W")
+```
+
+```{r}
+# Calcular el global moran
+globalMoran <- moran.mc(map_3$hosp_numx10000, map.linkW_a_queen1, nsim = 9999)
+globalMoran #importante el statistic y el p-value
+```
+
+En este caso vemos que la autocorrelación es muy baja con tan solo 0.19, esto nos indica que el número de hospitales no está muy correlacionado con su distribución espacial y que existen otros factores más importantes a la hora de determinar el número de hospitales como la densidad poblacional.
+
+```{r}
+map.link_a_queen1<-poly2nb(map_3,queen=T)
+map.linkW_a_queen1<-nb2listw(map.link_a_queen1, style="W")
+```
+
+```{r}
+# Calcular el global moran
+globalMoran <- moran.mc(map_3$rezago_social, map.linkW_a_queen1, nsim = 9999)
+globalMoran #importante el statistic y el p-value
+```
+
+En este caso observamos que el rezago social sí muestra una autocorrelación alta, esto puede ser por la administración de un estado o a que los municipios de niveles altos y bajos de rezago se encuentran agrupados en zonas específicas haciendo clústers dependiendo del rezago social.
+
+```{r}
+map.link_a_queen1<-poly2nb(map_3,queen=T)
+map.linkW_a_queen1<-nb2listw(map.link_a_queen1, style="W")
+```
+
+```{r}
+# Calcular el global porcent
+globalMoran <- moran.mc(map_3$porcentaje_pob_acceso_ss, map.linkW_a_queen1, nsim = 9999)
+globalMoran #importante el statistic y el p-value
+```
+
+En este caso vemos de nuevo una de las autocorrelaciones más altas al tomar en cuenta el acceso a servicios de seguridad social. Esto podría indicarnos cosas como que zonas en específico cuentan con alto o bajo acceso debido a la administración gubernamental o a que existen clústers de rezago social alto.
+
+
+# Correlación espacial local
+```{r}
+library(rgeoda)
+```
+
+```{r}
+queen_w<-queen_weights(map_3)
+
+```
+
+```{r}
+lisa_MEDV_1<-local_moran(queen_w, map_3["casosx10mil"]) 
+#agregar los p values a la base del mapa
+map_3$p_vals <-lisa_MEDV_1$p_vals
+```
+
+
+
+```{r}
+#Casos de covid por cada 10,000 habitantes
+ggplot(data=map_3) +
+  geom_sf(aes(fill=p_vals)) + 
+  ggtitle(label = "Autocorrelación espacial local de casos por cada 10,000 habitantes")
+```
+
+Vemos que en los municipios del centro y el sur es donde existe mayor correlación, mientras que en el este y noreste donde menos.
+
+```{r}
+#filtrar por rezago_social
+lisa_MEDV_rezago<-local_moran(queen_w, map_3["rezago_social"]) 
+map_4 <- map_3
+map_4$p_vals <-lisa_MEDV_rezago$p_vals
+
+ggplot(data=map_4) +
+  geom_sf(aes(fill=p_vals)) + 
+  ggtitle(label = "Autocorrelación espacial local de rezago social")
+```
+
+Vemos que en rezago social en el sureste y norte es donde hay mayor correlación espacial, en el centro es donde menos.
+
+```{r}
+#filtrar por popden2020
+lisa_MEDV_pop<-local_moran(queen_w, map_3["popden2020"]) 
+map_5 <- map_3
+map_5$p_vals <-lisa_MEDV_pop$p_vals
+
+ggplot(data=map_5) +
+  geom_sf(aes(fill=p_vals)) + 
+  ggtitle(label = "Autocorrelación espacial local de densidad de población")
+```
+En este caso los municipios del norte, sur y centro cuentan con una autocorrelación muy baja
+
+```{r}
+#filtrar por porcentaje_pob_acceso_ss
+lisa_MEDV_acceso<-local_moran(queen_w, map_3["porcentaje_pob_acceso_ss"]) 
+map_6 <- map_3
+map_6$p_vals <-lisa_MEDV_acceso$p_vals
+
+ggplot(data=map_6) +
+  geom_sf(aes(fill=p_vals)) + 
+  ggtitle(label = "Autocorrelación espacial local de porcentaje de la población con acceso a servicio de salud")
+```
+
+Vemos que las autocorrelaciones más altas en cuanto al acceso a SS son al este, centro y noreste de la región.
+
+```{r}
+#filtrar por porcentaje_pob_pobreza
+lisa_MEDV_por_pob<-local_moran(queen_w, map_3["porcentaje_pob_pobreza"]) 
+map_7 <- map_3
+map_7$p_vals <-lisa_MEDV_por_pob$p_vals
+
+ggplot(data=map_7) +
+  geom_sf(aes(fill=p_vals)) + 
+  ggtitle(label = "Autocorrelación espacial local de porcentaje de población en pobreza")
+```
+
+En cuanto a la pobreza, vemos que la mayoría de las zonas cuentan con autocorrelaciones locales significativas, lo que nos indica que es uno de los factores donde importa más el espacio geográfico.
+
+```{r}
+#filtrar por hogrem2015
+lisa_MEDV_hogrem<-local_moran(queen_w, map_3["hogrem2015"]) 
+map_8 <- map_3
+map_8$p_vals <-lisa_MEDV_hogrem$p_vals
+
+ggplot(data=map_8) +
+  geom_sf(aes(fill=p_vals)) + 
+  ggtitle(label = "Autocorrelación espacial local de hogares que reciben remesas")
+```
+
+
+# Clústers
+
+```{r}
+library(rgeoda)
+
+```
+
+
+```{r}
+queen_w<-queen_weights(map_3)
+
+```
+
+```{r}
+map_cluster <- map_3
+```
+
+```{r, include=FALSE}
+# Calcular el global moran
+map.link_a_queen1_n<-poly2nb(map_4,queen=T)
+map.linkW_a_queen_n<-nb2listw(map.link_a_queen1_n, style="W")
+```
+
+```{r, include=FALSE}
+queen_w_n <- queen_weights(map_4)
+```
+
+**Casos Covid nacional**
+```{r, include=FALSE}
+map_cluster_n <- map_4
+```
+
+```{r, include=FALSE}
+lisa_casos_n <-local_moran(queen_w_n, map_4["casosx10mil"]) 
+map_cluster_n$cluster_casos_n<-as.factor(lisa_casos_n$GetClusterIndicators())
+levels(map_cluster_n$cluster_casos_n)<-lisa_casos_n$GetLabels()
+```
+
+**Casos de Covid por cada 10,000 habitantes**
+
+```{r}
+  ggplot(data=map_cluster_n) +
+  geom_sf(aes(fill=cluster_casos_n)) 
+```
+En este caso vemos que las zonas con clústers High-High incluyen estados como COAH, NL, BC, BCS, GTO y CDMX. Por el contrario, estados como PUuebla, Chiapas y Oaxaca son de donde existen clústers LOW-LOW.
+
+```{r}
+map_cluster6 <- map_3
+```
+
+```{r}
+lisa_covid <-local_moran(queen_w, map_3["casosx10mil"]) 
+map_cluster6$cluster_covid<-as.factor(lisa_covid$GetClusterIndicators())
+levels(map_cluster6$cluster_covid)<-lisa_covid$GetLabels()
+```
+
+
+```{r}
+  ggplot(data=map_cluster6) +
+  geom_sf(aes(fill=cluster_covid))
+```
+En cuanto a los casos de covid podemos observar que existen clústers Low -Low principalmente en Puebla, donde podemos ver que en general el estado reportó muy pocos casos. En cuanto a los clústers High-High los podemos ver principalmente en la CDMX y en Guanajuato. En cuanto a clústers más pequeños, vemos zonas en Hidalgo que reportaron niveles bajos de Covid, así como clústers de outliers en el Edo. de México, sobre todo en los municipios que rodean a la CDMX. Podemos ver que en este caso tuvimos una de las regiones con mayor autocorrelación LOW-LOW de todo México con Puebla.
+
+
+**Rezago Social** 
+```{r}
+lisa_rezso <-local_moran(queen_w, map_3["rezago_social"]) 
+map_cluster$cluster_rezso<-as.factor(lisa_rezso$GetClusterIndicators())
+levels(map_cluster$cluster_rezso)<-lisa_rezso$GetLabels()
+```
+
+
+```{r}
+library(plotly)
+  ggplot(data=map_cluster) +
+  geom_sf(aes(fill=cluster_rezso))
+```
+
+En cuanto al rezago social vemos que es sobre todo en la CDMX donde vemos un clúster con un rezago social bajo. Existen por el contrario ciertos clústers High-High principalmente en Puebla y el Estado de México. Existen ciertos municipios con rezago social alto en zonas con rezago en general bajo en Guanajuato y el Estado de México. Vemos que, aunque la CDMX haya reportado muchos casos, existe muy bajo rezago social aquí. Así mismo, el clúster de Guanajuato que contó con altos casos son municipios que no pertenecen al que cuenta con alto rezago.
+
+
+**Densidad poblacional**
+
+```{r, include=FALSE}
+map_cluster1_n <- map_4
+```
+
+```{r, include=FALSE}
+lisa_pop_n <-local_moran(queen_w_n, map_3["popden2020"]) 
+map_cluster1_n$cluster_pop_n<-as.factor(lisa_pop_n$GetClusterIndicators())
+levels(map_cluster1_n$cluster_pop_n)<-lisa_pop_n$GetLabels()
+```
+
+```{r}
+ggplot(data=map_cluster1_n) +
+  geom_sf(aes(fill=cluster_pop_n))
+```
+Podemos observar que a nivel nacional existen clusters High-High en el Norte del país en estados como Chihuahua, Coahuila, Nuevo León y Tamaulipas; así com en CDMX y Quintana Roo. Algo interesante es que varios clústers de densidad poblacional alta coinciden con los de altos casos de covid (aunque no todos).
+
+```{r}
+map_cluster1 <- map_3
+```
+
+```{r}
+lisa_pop <-local_moran(queen_w, map_3["popden2020"]) 
+map_cluster1$cluster_pop<-as.factor(lisa_pop$GetClusterIndicators())
+levels(map_cluster1$cluster_pop)<-lisa_pop$GetLabels()
+```
+
+
+```{r}
+  ggplot(data=map_cluster1) +
+  geom_sf(aes(fill=cluster_pop))
+```
+
+Podemos ver que la CDMX cuenta con un clúster con alta densidad poblacional, algo que también podría explicar sus altos casos de Covid. Más allá de esto, existen clústers LOW-LOW principalmente en Morelos, Hidalgo, Puebla y uno en el Estado de México. Parece no existir una gran relación entre estos y el clúster de los casos de Covid. 
+
+
+### Porcentaje de pobreza
+
+```{r}
+map_cluster2 <- map_3
+```
+
+```{r}
+lisa_ppp <-local_moran(queen_w, map_3["porcentaje_pob_pobreza"]) 
+map_cluster2$cluster_ppp<-as.factor(lisa_ppp$GetClusterIndicators())
+levels(map_cluster2$cluster_ppp)<-lisa_ppp$GetLabels()
+```
+
+
+```{r}
+  ggplot(data=map_cluster2) +
+  geom_sf(aes(fill=cluster_ppp))
+```
+
+En particular este clúster parece relacionarse mucho con el de Covid. Vemos que existe un cluster High-High en estados de Guanajuato, Querétaro, Edo. de México y la CDMX, mientras que unos Low-Low principalmente en Puebla, Morelos y uno pequeño en Hidalgo. Si lo comparamos con el de covid vemos que en los clústers de la CDMX y Guanajuato con altos casos existe bajo porcentaje de pobreza, mientras que en los clústers de Puebla e Hidalgo de bajos casos existe alto porcentaje de pobreza. Esto parecería ser contraproducente, pero es importante recordar que puede existir algún sesgo en el reporte de los casos.
+
+
+**Acceso a Seguridad Social**
+
+```{r, include=FALSE}
+map_cluster3_n <- map_4
+```
+
+```{r, include=FALSE}
+lisa_ppas_n <-local_moran(queen_w_n, map_3["porcentaje_pob_acceso_ss"]) 
+map_cluster3_n$cluster_ppas_n<-as.factor(lisa_ppas_n$GetClusterIndicators())
+levels(map_cluster3_n$cluster_ppas_n)<-lisa_ppas_n$GetLabels()
+```
+
+```{r}
+ggplot(data=map_cluster3_n) +
+  geom_sf(aes(fill=cluster_ppas_n))
+```
+
+Podemos observar que clústers donde existe un alto porcentaje HIGH-HIGH en cuanto a gente sin acceso a seguridad social existen en estados del Norte como Chihuahua, del centro como Puebla y del sur como Quintana Roo. En cuanto al centro, cuenta con algunos de los pocos clústers Low-Low del país.
+
+```{r}
+map_cluster3 <- map_3
+```
+
+```{r}
+lisa_ppas <-local_moran(queen_w, map_3["porcentaje_pob_acceso_ss"]) 
+map_cluster3$cluster_ppas<-as.factor(lisa_ppas$GetClusterIndicators())
+levels(map_cluster3$cluster_ppas)<-lisa_ppas$GetLabels()
+```
+
+
+```{r}
+  ggplot(data=map_cluster3) +
+  geom_sf(aes(fill=cluster_ppas)) 
+```
+En este caso contamos con clústers High-High en Pueb, Morelos, Estado de México, Hidalgo. Así mismo, contamos con clústers Low-Low en Guanajuato, la CDMX y también algunos municipios del Estado de México. Este mapa se relaciona mucho como el de el nivel de pobreza y el rezago social, haciéndonos ver que en lugares donde existe un rezago alto tampoco existe acceso a la seguridad social. Por el contrario, de nuevo vemos que en lugares como Puebla e Hidalgo con poco acceso a la seguridad social existen bajos casos, mientras que en algunos como Guanajuato y la CDMX con alto acceso existen muchos casos. Se puede pensar que esta relación indica que el número de casos va a depender mucho de la cantidad de instituciones de salud que reporten y detecten estos casos.
+
+
+### Hogares que recibieron remesas en 2015
+
+```{r}
+map_cluster4 <- map_3
+```
+
+```{r}
+lisa_hogrem <-local_moran(queen_w, map_3["hogrem2015"]) 
+map_cluster4$cluster_hogrem<-as.factor(lisa_hogrem$GetClusterIndicators())
+levels(map_cluster4$cluster_hogrem)<-lisa_hogrem$GetLabels()
+```
+
+
+```{r}
+  ggplot(data=map_cluster4) +
+  geom_sf(aes(fill=cluster_hogrem)) 
+```
+En este mapa en particular vemos que existen clústers con altos niveles de hogares que reciben remes en Guanajuato, Querétaro, Higalgo y Morelos. Por el contrario, en la CDMX, Edo. de México y Puebla contamos con clústers Low-Low. Esto parece indicar que no existe una relación entre esto y los casos de covid reportados.
+
+### Hospitales por cada 10,000 habitantes
+
+```{r}
+map_cluster5 <- map_3
+```
+
+```{r}
+lisa_hosp <-local_moran(queen_w, map_3["hosp_numx10000"]) 
+map_cluster5$cluster_hosp<-as.factor(lisa_hosp$GetClusterIndicators())
+levels(map_cluster5$cluster_hosp)<-lisa_hosp$GetLabels()
+```
+
+
+```{r}
+  ggplot(data=map_cluster5) +
+  geom_sf(aes(fill=cluster_hosp))
+```
+
+Finalmente, en cuanto al número de hospitales vemos que existen pocos clústers significativos. Algunos de los High-High se encuentran en Guanajuato y la CDMX, esto nos puede indicar que quizá en estos lugares existieron muchos hospitales privados que reportaron casos.Por el contrario, en Puebla e Hidalgo es donde vemos más clústers Low-Low.
+
+
+Hallazgos:
+
+1) Observamos que en el lado este del mapa existe un cluster con casos bajos Low-Low de autocorrelación espacial. Por el contrario, en municipios del lado noreste y del centro existen dos clusters de correlación HIGH-HIGH. Esto nos indica que en Puebla en general hubo menor número de casos, mientras que en unos municipios de Guanajuato, CDMX y Morelos donde hubo mayores.
+2) En el caso de Guanajuato y CDMX, existen algunos clústers que se relacionan con el de casos de covid altos. Este es de los hospitales privados en el municipio donde en donde existen más hospitales también hay más casos. Así mismo, estas regiones contaban con clústers que indicaban menor rezago social y mayor acceso a Seguridad Social. Esto podría indicarnos que quizá se relaciona con que hay más instituciones que reporten casos y una mayor cultura de hacerse la prueba de diagnóstico, así como la disponibilidad y posibilidad económica de hacerlo en centros pribados.
+3) En cuanto a las remesas recibidas por hogar vemos existen dos clusters LOW-LOW, uno de estos en el centro de la región. Existen otros clusters HIGH-HIGH, uno de estos en el sur de Guanajuato. Estos clusters no se relacionan con los de covid, podríamos decir que es un caso donde otras variables afectan las remesas y que el hecho de que un estado reciba más o menos remesas no influye en los casos de covid y que existen variables socioeconómicas que no hemos estudiado y que sí se relacionan.
+4) En cuanto al acceso a servicios de salud, vemos que existe clusters en el centro de la región y algunos municipios de Guanajuato LOW-LOW, que se relacionan con los altos casos de covid. Esto nos dice que los lugares donde mayor porcentaje contó con acceso a salud es también donde hubo más casos. Esto igual se puede ver en la CDMX y lo contrario en regiones como Puebla. De nuevo, podríamos decir que esto se relaciona con el acceso a centros que realizan los diagnósticos y los reportan.
+5) No existe una clara conexión entre el porcentaje de pobreza y los casos de covid. En general, existe un cluster entre el centro-oeste y el oeste LOW-LOW y otro al este. Los clusters de casos altos se encuentran en el cluster de porcentaje bajo de pobreza, pero no todo este último cluster tuvo altos casos. Un punto interesante es que donde hubo menor pobreza es también parte del cluster donde hubo menos casos, lo que puede indicar que en los outliers de pobreza baja existió un menor acceso a pruebas para diagnosticarlo.
+6) La zona más central de la región es interesante ya que cuenta con un cluster LOW-LOW de rezago social, uno LOW-LOW de gente sin acceso a servicios de salud, uno HIGH-HIGH de densidad poblacional y otro HIGH-HIGH de covid. Eso parece ser una zona ideal para que el covid crezca ya que exite una concentración alta de personas, pero que ambién cuentan con condiciones socioeconómicas que permitió que la población accediera a un mejor tratamiento y diagnóstICO del Covid.
